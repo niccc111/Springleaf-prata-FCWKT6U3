@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roe-frontend
+  namespace: roe
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: roe-frontend }
+  template:
+    metadata:
+      labels: { app: roe-frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/example/roe-frontend:latest
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests: { cpu: '50m', memory: 64Mi }
+            limits: { cpu: '250m', memory: 256Mi }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: roe-frontend
+  namespace: roe
+spec:
+  selector: { app: roe-frontend }
+  ports:
+    - port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: roe
+  namespace: roe
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+spec:
+  rules:
+    - host: roe.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: roe-api
+                port: { number: 80 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: roe-frontend
+                port: { number: 80 }

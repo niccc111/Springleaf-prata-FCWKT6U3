@@ -1,0 +1,29 @@
+# Scheduled jobs: retention purges, geocoding retries, ETA refresh.
+# Exactly one replica — beat must not double-schedule.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roe-beat
+  namespace: roe
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: roe-beat }
+  template:
+    metadata:
+      labels: { app: roe-beat }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: beat
+          image: ghcr.io/example/roe-api:latest
+          command: ['celery', '-A', 'app.workers.celery_app.celery_app', 'beat', '--loglevel=info']
+          envFrom:
+            - configMapRef: { name: roe-config }
+            - secretRef: { name: roe-secrets }
+          resources:
+            requests: { cpu: '100m', memory: 256Mi }
+            limits: { cpu: '500m', memory: 512Mi }

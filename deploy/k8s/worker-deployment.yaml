@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roe-worker
+  namespace: roe
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: roe-worker }
+  template:
+    metadata:
+      labels: { app: roe-worker }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: worker
+          image: ghcr.io/example/roe-api:latest
+          command: ['celery', '-A', 'app.workers.celery_app.celery_app', 'worker', '--loglevel=info', '--concurrency=2']
+          envFrom:
+            - configMapRef: { name: roe-config }
+            - secretRef: { name: roe-secrets }
+          # Requirement 18.2 — OR-Tools needs real parallelism to hit
+          # 500 orders x 50 vehicles inside the 120 s budget.
+          resources:
+            requests: { cpu: '2', memory: 2Gi }
+            limits: { cpu: '4', memory: 4Gi }
+          livenessProbe:
+            exec:
+              command: ['celery', '-A', 'app.workers.celery_app.celery_app', 'inspect', 'ping', '-d', 'celery@$(hostname)']
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ['ALL'] }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: roe-worker
+  namespace: roe
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: roe-worker }
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

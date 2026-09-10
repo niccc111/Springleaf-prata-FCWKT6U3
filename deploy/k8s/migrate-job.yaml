@@ -1,0 +1,20 @@
+# Run before each rollout: kubectl apply -f migrate-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roe-migrate
+  namespace: roe
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/example/roe-api:latest
+          command: ['alembic', 'upgrade', 'head']
+          envFrom:
+            - configMapRef: { name: roe-config }
+            - secretRef: { name: roe-secrets }
+          resources:
+            requests: { cpu: '200m', memory: 256Mi }

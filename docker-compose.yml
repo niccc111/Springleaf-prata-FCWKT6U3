@@ -1,0 +1,104 @@
+# Local development stack for the Route Optimisation Engine.
+#
+#   docker compose up --build
+#   docker compose exec api alembic upgrade head
+#   docker compose exec api python scripts/seed_demo.py
+#
+# The API is on http://localhost:8000 (docs at /docs) and the dispatcher UI on
+# http://localhost:5173.
+
+name: roe
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: roe
+      POSTGRES_PASSWORD: roe
+      POSTGRES_DB: roe
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U roe -d roe']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    env_file: [./backend/.env.example]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://roe:roe@postgres:5432/roe
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - '8000:8000'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: ./backend
+    command: ['celery', '-A', 'app.workers.celery_app.celery_app', 'worker', '--loglevel=info']
+    env_file: [./backend/.env.example]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://roe:roe@postgres:5432/roe
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      api: { condition: service_healthy }
+
+  beat:
+    build:
+      context: ./backend
+    command: ['celery', '-A', 'app.workers.celery_app.celery_app', 'beat', '--loglevel=info']
+    env_file: [./backend/.env.example]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://roe:roe@postgres:5432/roe
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      api: { condition: service_healthy }
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_PROXY: http://api:8000
+    ports:
+      - '5173:5173'
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  postgres-data:
+  redis-data:

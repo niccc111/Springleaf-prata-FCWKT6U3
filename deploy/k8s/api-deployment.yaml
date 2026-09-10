@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roe-api
+  namespace: roe
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: roe-api }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: roe-api }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: api
+          image: ghcr.io/example/roe-api:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef: { name: roe-config }
+            - secretRef: { name: roe-secrets }
+          resources:
+            requests: { cpu: '500m', memory: 512Mi }
+            limits: { cpu: '2', memory: 2Gi }
+          # Requirement 18.1 — /health is a pure liveness probe; /ready also
+          # checks the database so a replica only takes traffic when usable.
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            failureThreshold: 30
+            periodSeconds: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ['ALL'] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: roe-api
+  namespace: roe
+spec:
+  selector: { app: roe-api }
+  ports:
+    - port: 80
+      targetPort: http
+      name: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: roe-api
+  namespace: roe
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: roe-api }
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 65 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: roe-api
+  namespace: roe
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: roe-api }
