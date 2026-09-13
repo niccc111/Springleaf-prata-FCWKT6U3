@@ -21,12 +21,11 @@ from app.models.enums import (
     ExportStatus,
     OptimisationRunStatus,
     RouteStatus,
-    UserRole,
 )
 from app.services.export_service import backoff_schedule, export_service
 from app.services.route_math import StopPlan, build_schedule
 from app.services.route_service import route_service
-from tests.conftest import build_order, build_vehicle, make_user
+from tests.conftest import build_order, build_vehicle, make_actor
 from tests.property.strategies import geo_points
 
 pytestmark = pytest.mark.property
@@ -65,9 +64,7 @@ async def _approved_route(session, user_id: uuid.UUID, point) -> Route:
     route = await route_service.create_route(
         session, vehicle=vehicle, run_id=run.run_id, schedule=schedule, acting_user=user_id
     )
-    await route_service.update_route_status(
-        session, route.route_id, RouteStatus.APPROVED, user_id
-    )
+    await route_service.update_route_status(session, route.route_id, RouteStatus.APPROVED, user_id)
     await session.flush()
     return route
 
@@ -90,19 +87,23 @@ def test_property_28_export_backoff(sessionmaker_, truncate, run_async, failures
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
-            route = await _approved_route(session, user.user_id, point)
+            actor = make_actor()
+            route = await _approved_route(session, actor, point)
             await session.commit()
             job = await export_service.export_route_now(
-                session, route.route_id, user.user_id, sleeper=fake_sleep
+                session, route.route_id, actor, sleeper=fake_sleep
             )
             await session.commit()
             refreshed = await route_service.get_route(session, route.route_id)
             alerts = (
-                await session.execute(
-                    select(Alert).where(Alert.alert_type == AlertType.EXPORT_FAILURE.value)
+                (
+                    await session.execute(
+                        select(Alert).where(Alert.alert_type == AlertType.EXPORT_FAILURE.value)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return job, refreshed, list(alerts)
 
     job, route, alerts = run_async(scenario())
@@ -134,27 +135,29 @@ def test_property_28_export_backoff(sessionmaker_, truncate, run_async, failures
 
 
 @given(point=geo_points())
-def test_manual_retrigger_cancels_in_flight_sequence(
-    sessionmaker_, truncate, run_async, point
-):
+def test_manual_retrigger_cancels_in_flight_sequence(sessionmaker_, truncate, run_async, point):
     """Requirement 13.5 — a manual re-trigger cancels any in-progress sequence."""
     truncate()
     set_delivery_platform_adapter(MockDeliveryPlatformAdapter(always_fail=True))
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
-            route = await _approved_route(session, user.user_id, point)
+            actor = make_actor()
+            route = await _approved_route(session, actor, point)
             await session.commit()
-            first = await export_service.enqueue_export(session, route.route_id, user.user_id)
+            first = await export_service.enqueue_export(session, route.route_id, actor)
             await session.commit()
-            second = await export_service.enqueue_export(session, route.route_id, user.user_id)
+            second = await export_service.enqueue_export(session, route.route_id, actor)
             await session.commit()
             jobs = (
-                await session.execute(
-                    select(ExportJob).where(ExportJob.route_id == route.route_id)
+                (
+                    await session.execute(
+                        select(ExportJob).where(ExportJob.route_id == route.route_id)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return first, second, {j.job_id: j for j in jobs}
 
     first, second, jobs = run_async(scenario())

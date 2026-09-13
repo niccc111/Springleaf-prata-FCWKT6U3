@@ -1,4 +1,4 @@
-"""Audit log query endpoint (Administrator only) — Task 15.5."""
+"""Audit log query endpoint — Task 15.5."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
-from app.api.deps import AdminOnly, SessionDep
+from app.api.deps import SessionDep
 from app.models.enums import EntityType
 from app.schemas.common import Page
 from app.schemas.entities import AuditLogRead
@@ -21,7 +21,6 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 @router.get("", response_model=Page[AuditLogRead], summary="Query the audit log")
 async def query_audit(
     session: SessionDep,
-    admin: AdminOnly,
     entity_type: Annotated[EntityType | None, Query()] = None,
     entity_id: Annotated[uuid.UUID | None, Query()] = None,
     acting_user: Annotated[uuid.UUID | None, Query()] = None,
@@ -40,9 +39,7 @@ async def query_audit(
         to_date=to_date,
     )
     total = (
-        await session.scalar(
-            select(func.count()).select_from(stmt.order_by(None).subquery())
-        )
+        await session.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
     ) or 0
     result = await session.execute(stmt.limit(limit).offset(offset))
     return Page[AuditLogRead](

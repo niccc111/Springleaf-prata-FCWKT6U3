@@ -12,9 +12,9 @@ from sqlalchemy import func, select
 
 from app.core.errors import ValidationFailed
 from app.models.entities import Order
-from app.models.enums import OrderSource, UserRole
+from app.models.enums import OrderSource
 from app.services.upload_service import upload_service
-from tests.conftest import make_user
+from tests.conftest import make_actor
 
 pytestmark = pytest.mark.property
 
@@ -24,7 +24,12 @@ HEADERS = ["delivery_address", "cargo_weight_kg", "cargo_volume_m3", "priority"]
 def _row(valid: bool, index: int) -> tuple[list[str], str | None]:
     """Return a CSV row plus the column expected to fail (None when valid)."""
     if valid:
-        return [f"{index} Robinson Road, Singapore 0486{index % 10}0", "12.5", "0.4", "standard"], None
+        return [
+            f"{index} Robinson Road, Singapore 0486{index % 10}0",
+            "12.5",
+            "0.4",
+            "standard",
+        ], None
     # Deterministically vary which column is invalid.
     kind = index % 3
     if kind == 0:
@@ -61,14 +66,14 @@ def test_property_10_row_partitioning(sessionmaker_, truncate, run_async, flags)
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             try:
                 result = await upload_service.import_file(
                     session,
                     kind="orders",
                     filename="orders.csv",
                     content=content,
-                    acting_user=user.user_id,
+                    acting_user=actor,
                     geocode=False,
                 )
                 await session.commit()
@@ -93,9 +98,9 @@ def test_property_10_row_partitioning(sessionmaker_, truncate, run_async, flags)
 
     reported = {(e.row_number, e.column) for e in result.errors}
     for row_number, column in expected_errors:
-        assert (row_number, column) in reported, (
-            f"expected an error for row {row_number} column {column}; got {sorted(reported)}"
-        )
+        assert (
+            (row_number, column) in reported
+        ), f"expected an error for row {row_number} column {column}; got {sorted(reported)}"
     for error in result.errors:
         assert error.reason, "every row error must carry a reason"
         assert 2 <= error.row_number <= len(flags) + 1
@@ -121,7 +126,7 @@ def test_property_9_system_error_persists_nothing(
 
     async def scenario() -> tuple[bool, int]:
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             await session.commit()
             raised = False
             try:
@@ -130,7 +135,7 @@ def test_property_9_system_error_persists_nothing(
                     kind="orders",
                     filename="orders.csv",
                     content=content,
-                    acting_user=user.user_id,
+                    acting_user=actor,
                     geocode=False,
                     fail_after_rows=fail_after,
                 )
@@ -148,9 +153,7 @@ def test_property_9_system_error_persists_nothing(
 
 
 @given(flags=st.lists(st.booleans(), min_size=1, max_size=12))
-def test_imported_rows_are_sourced_spreadsheet(
-    sessionmaker_, truncate, run_async, flags
-):
+def test_imported_rows_are_sourced_spreadsheet(sessionmaker_, truncate, run_async, flags):
     """Requirement 4.5 — imported rows carry source = spreadsheet."""
     if not any(flags):
         return
@@ -159,13 +162,13 @@ def test_imported_rows_are_sourced_spreadsheet(
 
     async def scenario() -> list[str]:
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             await upload_service.import_file(
                 session,
                 kind="orders",
                 filename="orders.csv",
                 content=content,
-                acting_user=user.user_id,
+                acting_user=actor,
                 geocode=False,
             )
             await session.commit()

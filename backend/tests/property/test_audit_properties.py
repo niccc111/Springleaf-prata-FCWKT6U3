@@ -12,9 +12,9 @@ from hypothesis import strategies as st
 from sqlalchemy import delete, func, select, update
 
 from app.models.entities import AuditLog, ErrorLog, Order
-from app.models.enums import EntityType, UserRole
+from app.models.enums import EntityType
 from app.services.audit_service import AuditWriteError, audit_service
-from tests.conftest import build_order, build_vehicle, make_user
+from tests.conftest import build_order, build_vehicle, make_actor
 from tests.property.strategies import addresses, capacities, geo_points, weights
 
 pytestmark = pytest.mark.property
@@ -43,13 +43,13 @@ def test_property_33_audit_entries_are_immutable(
     async def scenario():
         entity_id = uuid.uuid4()
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.ADMINISTRATOR)
+            actor = make_actor()
             entry = await audit_service.record_change(
                 session,
                 entity_id=entity_id,
                 entity_type=entity_type,
                 action=action,
-                acting_user=user.user_id,
+                acting_user=actor,
                 old_state=None,
                 new_state=payload,
             )
@@ -97,7 +97,7 @@ def test_property_32_state_changes_are_audited(
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             order = build_order(delivery_address=address, cargo_weight_kg=weight)
             vehicle = build_vehicle(capacity_weight_kg=capacity, depot_location=depot)
             session.add_all([order, vehicle])
@@ -108,7 +108,7 @@ def test_property_32_state_changes_are_audited(
                 entity_id=order.order_id,
                 entity_type=EntityType.ORDER,
                 action="order.created",
-                acting_user=user.user_id,
+                acting_user=actor,
                 old_state=None,
                 new_state=order.to_dict(),
             )
@@ -120,7 +120,7 @@ def test_property_32_state_changes_are_audited(
                 entity_id=order.order_id,
                 entity_type=EntityType.ORDER,
                 action="order.updated",
-                acting_user=user.user_id,
+                acting_user=actor,
                 old_state=before,
                 new_state=order.to_dict(),
             )
@@ -129,7 +129,7 @@ def test_property_32_state_changes_are_audited(
                 entity_id=vehicle.vehicle_id,
                 entity_type=EntityType.VEHICLE,
                 action="vehicle.created",
-                acting_user=user.user_id,
+                acting_user=actor,
                 old_state=None,
                 new_state=vehicle.to_dict(),
             )
@@ -146,9 +146,9 @@ def test_property_32_state_changes_are_audited(
                 .scalars()
                 .all()
             )
-            return list(entries), order, vehicle, user
+            return list(entries), order, vehicle, actor
 
-    entries, order, vehicle, user = run_async(scenario())
+    entries, order, vehicle, actor = run_async(scenario())
 
     assert len(entries) == 3, f"expected one entry per state change, found {len(entries)}"
     by_action = {e.action: e for e in entries}
@@ -158,9 +158,10 @@ def test_property_32_state_changes_are_audited(
     assert created.entity_id == order.order_id
     assert created.entity_type == EntityType.ORDER.value
     assert created.old_state is None
-    assert created.new_state["delivery_address"] == address.strip() or created.new_state[
-        "delivery_address"
-    ] == address
+    assert (
+        created.new_state["delivery_address"] == address.strip()
+        or created.new_state["delivery_address"] == address
+    )
 
     updated = by_action["order.updated"]
     assert updated.old_state["cargo_weight_kg"] == float(weight)
@@ -171,7 +172,7 @@ def test_property_32_state_changes_are_audited(
     assert vehicle_entry.entity_id == vehicle.vehicle_id
 
     for entry in entries:
-        assert entry.acting_user == user.user_id
+        assert entry.acting_user == actor
         assert entry.created_at.tzinfo is not None
         assert entry.created_at <= datetime.now(UTC)
         # TIMESTAMPTZ(3) keeps millisecond precision, never finer.
@@ -192,7 +193,7 @@ def test_property_34_audit_failure_rolls_back_entity_change(
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             order = build_order(cargo_weight_kg=Decimal("11.00"))
             session.add(order)
             await session.commit()
@@ -211,7 +212,7 @@ def test_property_34_audit_failure_rolls_back_entity_change(
                     entity_id=order_id,
                     entity_type="not-a-valid-entity-type",  # violates the CHECK constraint
                     action="order.updated",
-                    acting_user=user.user_id,
+                    acting_user=actor,
                     old_state=None,
                     new_state={"cargo_weight_kg": float(new_weight)},
                 )
@@ -228,7 +229,7 @@ def test_property_34_audit_failure_rolls_back_entity_change(
     raised, persisted_weight, original_weight, error_count = run_async(scenario())
 
     assert raised, "a failing audit write must raise so the caller rolls back"
-    assert persisted_weight == original_weight, (
-        "the entity change must not survive a failed audit write"
-    )
+    assert (
+        persisted_weight == original_weight
+    ), "the entity change must not survive a failed audit write"
     assert error_count >= 1, "the failure must be recorded in error_log"

@@ -8,31 +8,20 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core import events
-from app.core.errors import Unauthenticated
 from app.core.logging import get_logger
-from app.core.security import decode_token
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
 @router.websocket("/ws")
-async def dispatcher_socket(websocket: WebSocket, token: str = Query(default="")) -> None:
-    """Authenticated event stream. The token is passed as a query parameter
-    because browsers cannot set headers on a WebSocket handshake."""
-    try:
-        claims = decode_token(token, expected_type="access")
-    except Unauthenticated:
-        await websocket.close(code=4401, reason="Missing or invalid credentials")
-        return
-
+async def dispatcher_socket(websocket: WebSocket) -> None:
+    """Live event stream pushed to every open dispatcher console."""
     await websocket.accept()
-    await websocket.send_json(
-        {"event": "connected", "payload": {"user_id": claims["sub"], "role": claims.get("role")}}
-    )
+    await websocket.send_json({"event": "connected", "payload": {}})
 
     async def heartbeat() -> None:
         while True:

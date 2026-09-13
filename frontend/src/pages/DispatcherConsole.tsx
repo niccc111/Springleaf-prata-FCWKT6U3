@@ -7,7 +7,6 @@ import {
   Bell,
   FileSpreadsheet,
   ListChecks,
-  LogOut,
   Package,
   PlusCircle,
   Route as RouteIcon,
@@ -63,8 +62,7 @@ interface PendingReassign extends DragPayload {
   message: string;
 }
 
-export function DispatcherConsole({ onSignOut }: { onSignOut: () => void }) {
-  const user = useAppStore((s) => s.user);
+export function DispatcherConsole() {
   const selectedRouteId = useAppStore((s) => s.selectedRouteId);
   const selectedStopId = useAppStore((s) => s.selectedStopId);
   const selectRoute = useAppStore((s) => s.selectRoute);
@@ -81,11 +79,10 @@ export function DispatcherConsole({ onSignOut }: { onSignOut: () => void }) {
   const [pendingReassign, setPendingReassign] = useState<PendingReassign | null>(null);
   const [running, setRunning] = useState(false);
 
-  const authed = Boolean(user);
-  const routesQuery = useRoutes(authed);
-  const alertsQuery = useAlerts(authed);
-  useSummary(authed);
-  useConnectivity(authed);
+  const routesQuery = useRoutes();
+  const alertsQuery = useAlerts();
+  useSummary();
+  useConnectivity();
 
   const { patchRoute, exportRoute, recalculate, reassign, acknowledgeAlert, optimise } =
     useRouteMutations();
@@ -94,7 +91,6 @@ export function DispatcherConsole({ onSignOut }: { onSignOut: () => void }) {
   const unacknowledged = useMemo(() => unacknowledgedAlerts(alerts), [alerts]);
   const selectedRoute = findRoute(routes, selectedRouteId);
   const selectedStop = selectedRoute?.stops.find((s) => s.stop_id === selectedStopId) ?? null;
-  const isAdmin = user?.role === 'administrator';
 
   // ---- optimisation ------------------------------------------------------
   const handleOptimise = useCallback(
@@ -250,22 +246,9 @@ export function DispatcherConsole({ onSignOut }: { onSignOut: () => void }) {
             <PlusCircle className="h-3.5 w-3.5" />
             Add data
           </Button>
-          {isAdmin && (
-            <Button variant="outline" size="sm" onClick={() => setAuditOpen(true)}>
-              <ScrollText className="h-3.5 w-3.5" />
-              Audit log
-            </Button>
-          )}
-          <div className="mx-1 hidden items-center gap-1.5 sm:flex">
-            <Badge variant="outline" className="capitalize">
-              {user?.role}
-            </Badge>
-            <span className="max-w-[160px] truncate text-xs text-muted-foreground" title={user?.email}>
-              {user?.email}
-            </span>
-          </div>
-          <Button variant="ghost" size="icon-sm" onClick={onSignOut} aria-label="Sign out">
-            <LogOut className="h-4 w-4" />
+          <Button variant="outline" size="sm" onClick={() => setAuditOpen(true)}>
+            <ScrollText className="h-3.5 w-3.5" />
+            Audit log
           </Button>
         </div>
       </header>

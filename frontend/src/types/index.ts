@@ -8,8 +8,7 @@ export type RouteStatus = 'draft' | 'approved' | 'dispatched' | 'completed';
 export type AlertType = 'overload' | 'late_delivery' | 'impossible_order' | 'export_failure';
 export type AlertSeverity = 'warning' | 'critical';
 export type AlertEntityType = 'vehicle' | 'order' | 'route';
-export type EntityType = 'order' | 'vehicle' | 'route' | 'alert' | 'user';
-export type UserRole = 'dispatcher' | 'administrator';
+export type EntityType = 'order' | 'vehicle' | 'route' | 'alert';
 export type OptimisationRunStatus = 'in_progress' | 'completed' | 'timed_out' | 'aborted';
 export type ExportStatus = 'pending' | 'in_progress' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -172,24 +171,6 @@ export interface AuditEntry {
   action: string;
   acting_user: string;
   created_at: string;
-}
-
-export interface User {
-  user_id: string;
-  email: string;
-  full_name: string | null;
-  role: UserRole;
-  active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface TokenPair {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  expires_in: number;
-  user: User;
 }
 
 export interface RowError {

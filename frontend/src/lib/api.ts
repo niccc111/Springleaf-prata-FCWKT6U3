@@ -12,9 +12,7 @@ import type {
   ReassignResponse,
   Route,
   RouteStatus,
-  TokenPair,
   UploadResult,
-  User,
   Vehicle,
 } from '@/types';
 
@@ -40,31 +38,13 @@ export class ApiError extends Error {
   }
 }
 
-let accessToken: string | null = null;
-let onUnauthorised: (() => void) | null = null;
-
-export function setAccessToken(token: string | null) {
-  accessToken = token;
-}
-
-export function setUnauthorisedHandler(handler: (() => void) | null) {
-  onUnauthorised = handler;
-}
-
-export function getAccessToken(): string | null {
-  return accessToken;
-}
-
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (!(init.body instanceof FormData) && init.body !== undefined) {
     headers.set('Content-Type', 'application/json');
   }
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
 
   const response = await fetch(`${API_PREFIX}${path}`, { ...init, headers });
-
-  if (response.status === 401 && onUnauthorised) onUnauthorised();
 
   if (!response.ok) {
     let body: ApiErrorBody;
@@ -85,13 +65,6 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
 
 export const api = {
-  // ---- auth ----
-  login: (email: string, password: string) =>
-    request<TokenPair>('/auth/login', { method: 'POST', ...json({ email, password }) }),
-  refresh: (refreshToken: string) =>
-    request<TokenPair>('/auth/refresh', { method: 'POST', ...json({ refresh_token: refreshToken }) }),
-  me: () => request<User>('/auth/me'),
-
   // ---- routes ----
   listRoutes: (params?: { status?: RouteStatus; includeCompleted?: boolean }) => {
     const search = new URLSearchParams();
@@ -180,7 +153,7 @@ export const api = {
     return blob;
   },
 
-  // ---- admin ----
+  // ---- audit ----
   listAudit: (params: Record<string, string | undefined>) => {
     const search = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -188,11 +161,6 @@ export const api = {
     }
     return request<Page<AuditEntry>>(`/audit?${search.toString()}`);
   },
-  listUsers: () => request<User[]>('/users'),
-  createUser: (payload: Record<string, unknown>) =>
-    request<User>('/users', { method: 'POST', ...json(payload) }),
-  changeUserRole: (userId: string, role: string) =>
-    request<User>(`/users/${userId}/role`, { method: 'PATCH', ...json({ role }) }),
 
   // ---- system ----
   connectivity: () => request<IntegrationStatus[]>('/system/connectivity'),

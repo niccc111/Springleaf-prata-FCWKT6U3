@@ -89,7 +89,6 @@ export function AuditLogModal({ open, onOpenChange }: AuditLogModalProps) {
               <option value="vehicle">Vehicle</option>
               <option value="route">Route</option>
               <option value="alert">Alert</option>
-              <option value="user">User</option>
             </Select>
           </div>
           <div className="space-y-1.5">
@@ -166,7 +165,7 @@ export function AuditLogModal({ open, onOpenChange }: AuditLogModalProps) {
                     <th scope="col" className="px-3 py-2 font-medium">When (UTC)</th>
                     <th scope="col" className="px-3 py-2 font-medium">Action</th>
                     <th scope="col" className="px-3 py-2 font-medium">Entity</th>
-                    <th scope="col" className="px-3 py-2 font-medium">User</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Operator</th>
                     <th scope="col" className="px-3 py-2 font-medium">Change</th>
                   </tr>
                 </thead>

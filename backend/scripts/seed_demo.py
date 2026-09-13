@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import delete, func, select
 
 from app.adapters.mapping import GAZETTEER
-from app.core.bootstrap import ensure_seed_users
 from app.db.session import session_scope
 from app.models.entities import (
     Alert,
@@ -30,7 +29,6 @@ from app.models.entities import (
     Route,
     Stop,
     StopOrder,
-    User,
     Vehicle,
 )
 from app.models.enums import OrderSource, OrderStatus, Priority, VehicleSource
@@ -66,7 +64,6 @@ async def reset(session) -> None:
 async def main(order_count: int, vehicle_count: int, seed: int) -> None:
     random.seed(seed)
     async with session_scope() as session:
-        await ensure_seed_users(session)
         await reset(session)
 
         for index in range(vehicle_count):
@@ -130,8 +127,7 @@ async def main(order_count: int, vehicle_count: int, seed: int) -> None:
     async with session_scope() as session:
         orders = await session.scalar(select(func.count()).select_from(Order))
         vehicles = await session.scalar(select(func.count()).select_from(Vehicle))
-        users = await session.scalar(select(func.count()).select_from(User))
-    print(f"Seeded {orders} orders, {vehicles} vehicles, {users} users.")
+    print(f"Seeded {orders} orders and {vehicles} vehicles.")
 
 
 if __name__ == "__main__":

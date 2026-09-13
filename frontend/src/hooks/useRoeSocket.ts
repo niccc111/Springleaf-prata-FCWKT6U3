@@ -9,16 +9,14 @@ import { roeSocket } from '@/lib/socket';
 import { useAppStore } from '@/store';
 import type { WsEvent } from '@/types';
 
-export function useRoeSocket(token: string | null) {
+export function useRoeSocket() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!token) return;
-
     const store = useAppStore.getState;
 
     roeSocket.onStateChange = (connected) => store().setSocketConnected(connected);
-    roeSocket.connect(token);
+    roeSocket.connect();
 
     const unsubscribe = roeSocket.subscribe((message: WsEvent) => {
       const state = store();
@@ -122,5 +120,5 @@ export function useRoeSocket(token: string | null) {
       unsubscribe();
       roeSocket.disconnect();
     };
-  }, [token, queryClient]);
+  }, [queryClient]);
 }

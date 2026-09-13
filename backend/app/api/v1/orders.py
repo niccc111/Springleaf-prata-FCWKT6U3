@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 from sqlalchemy import and_, func, select
 
-from app.api.deps import DispatcherOrAdmin, SessionDep
+from app.api.deps import ActorDep, SessionDep
 from app.core.errors import NotFound
 from app.models.entities import Order, Stop, StopOrder
 from app.models.enums import OrderStatus, Priority
@@ -45,7 +45,6 @@ def _read(order: Order, route_id: uuid.UUID | None) -> OrderRead:
 @router.get("", response_model=Page[OrderRead], summary="List orders")
 async def list_orders(
     session: SessionDep,
-    user: DispatcherOrAdmin,
     status_filter: Annotated[OrderStatus | None, Query(alias="status")] = None,
     priority: Annotated[Priority | None, Query()] = None,
     needs_review: Annotated[bool | None, Query()] = None,
@@ -89,24 +88,18 @@ async def list_orders(
     status_code=status.HTTP_201_CREATED,
     summary="Create an order manually (Requirement 3.1)",
 )
-async def create_order(
-    payload: OrderCreate, session: SessionDep, user: DispatcherOrAdmin
-) -> OrderRead:
-    order = await manual_entry_service.create_order(session, payload, user.user_id)
+async def create_order(payload: OrderCreate, session: SessionDep, actor: ActorDep) -> OrderRead:
+    order = await manual_entry_service.create_order(session, payload, actor)
     # Requirement 6.2/6.3 — flag overlapping routes for re-optimisation.
     if order.priority == Priority.PRIORITY.value:
-        await optimisation_service.flag_routes_for_priority_order(
-            session, order, acting_user=user.user_id
-        )
+        await optimisation_service.flag_routes_for_priority_order(session, order, acting_user=actor)
     await optimisation_service.notify_pending_orders(session)
     await session.commit()
     return _read(order, None)
 
 
 @router.get("/{order_id}", response_model=OrderRead, summary="Get an order")
-async def get_order(
-    order_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> OrderRead:
+async def get_order(order_id: uuid.UUID, session: SessionDep) -> OrderRead:
     order = await session.get(Order, order_id)
     if order is None:
         raise NotFound(f"Order {order_id} not found")
@@ -114,20 +107,16 @@ async def get_order(
     return _read(order, route_ids.get(order_id))
 
 
-@router.patch(
-    "/{order_id}", response_model=OrderRead, summary="Edit an order (Requirement 3.6)"
-)
+@router.patch("/{order_id}", response_model=OrderRead, summary="Edit an order (Requirement 3.6)")
 async def update_order(
     order_id: uuid.UUID,
     payload: OrderUpdate,
     session: SessionDep,
-    user: DispatcherOrAdmin,
+    actor: ActorDep,
 ) -> OrderRead:
-    order = await manual_entry_service.update_order(session, order_id, payload, user.user_id)
+    order = await manual_entry_service.update_order(session, order_id, payload, actor)
     if order.priority == Priority.PRIORITY.value:
-        await optimisation_service.flag_routes_for_priority_order(
-            session, order, acting_user=user.user_id
-        )
+        await optimisation_service.flag_routes_for_priority_order(session, order, acting_user=actor)
     await session.commit()
     route_ids = await _route_ids_for(session, [order_id])
     return _read(order, route_ids.get(order_id))
@@ -142,10 +131,10 @@ async def set_coordinates(
     order_id: uuid.UUID,
     payload: OrderCoordinateOverride,
     session: SessionDep,
-    user: DispatcherOrAdmin,
+    actor: ActorDep,
 ) -> OrderRead:
     order = await manual_entry_service.set_order_coordinates(
-        session, order_id, payload.latitude, payload.longitude, user.user_id
+        session, order_id, payload.latitude, payload.longitude, actor
     )
     await session.commit()
     return _read(order, None)

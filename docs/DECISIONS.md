@@ -71,17 +71,37 @@ created by migration `0001` and mapped through a custom SQLAlchemy
 `UserDefinedType`. asyncpg round-trips composites natively, so the schema
 matches the design exactly rather than being flattened into two columns.
 
-## 6. RBAC reads the role from the database on every request
+## 6. Authentication was removed entirely
 
-**Design says:** short-lived JWTs so a role change propagates within 60 seconds
-via the next token refresh.
+**Design says:** Requirement 17 specifies dispatcher and administrator roles,
+a role matrix over the endpoints, 401s for unauthenticated requests, and an
+audit entry for every denial.
 
-**Built:** the JWT is validated for signature, expiry, issuer, and audience,
-then the user record is loaded and **the database role is authoritative**. A
-role change therefore takes effect on the user's very next request, comfortably
-inside Requirement 17.6's 60 seconds, and a deactivated account is locked out
-immediately rather than at token expiry. Short-lived tokens (15 min) and
-refresh tokens (24 h) are still configured.
+**Built:** nothing of the sort. The product owner asked for a system with no
+login details, so the JWT issuer and validator, the bcrypt password store, the
+`users` table, the role enum, the RBAC dependencies, the `/auth` and `/users`
+endpoints and the console's login page were all removed rather than left
+dormant behind a flag — dead credential-handling code is a liability, and a
+disabled login is easy to re-enable by accident.
+
+**Consequences:**
+
+- Requirement 17 and Properties 35 and 36 are withdrawn. Two tests now assert
+  the *absence* of authentication, so a future change that quietly
+  reintroduces a 401 fails the suite.
+- The audit trail (Requirement 16) is otherwise untouched: entries still carry
+  entity, action, before/after state and a millisecond UTC timestamp. With no
+  signed-in user, `acting_user` is the fixed console-operator id
+  `00000000-0000-0000-0000-00000000d15b` (`app.api.deps.CONSOLE_OPERATOR_ID`),
+  chosen as a constant so audit history stays queryable across restarts.
+- Migration `0003_remove_authentication` drops the `users` table, removes
+  `user` from the audit `entity_type` constraint, and deletes the historical
+  access-denial rows that only the RBAC layer wrote. It has a working
+  downgrade, which recreates the table.
+- The service must run on a trusted network. Anyone who can reach the API can
+  read every order and dispatch routes. Access control, if it is ever wanted,
+  belongs in front of the service — a VPN or an authenticating proxy — not
+  back inside it.
 
 ## 7. Alert types extended with `export_failure`
 
@@ -111,8 +131,7 @@ Columns added to design tables: `orders.service_duration_min` and
 `data_quality_message`, `needs_reoptimisation`, `priority_relaxed`,
 `travel_times_updated_at`, `completed_at`, `driver_id`; `stops.departure`,
 `distance_from_previous_km`, `travel_time_from_previous_min`,
-`has_priority_order`; `users.password_hash`, `full_name`, `active`;
-`alerts.context`. Each backs a stated requirement — for example
+`has_priority_order`; `alerts.context`. Each backs a stated requirement — for example
 `routes.priority_relaxed` backs Property 15's escape clause, and
 `alerts.context` carries the entity ids the notification panel displays.
 

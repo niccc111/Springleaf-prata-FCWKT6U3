@@ -12,9 +12,9 @@ from sqlalchemy import select
 
 from app.core.errors import Conflict
 from app.models.entities import Alert
-from app.models.enums import AlertEntityType, AlertSeverity, AlertType, UserRole
+from app.models.enums import AlertEntityType, AlertSeverity, AlertType
 from app.services.alert_service import alert_service
-from tests.conftest import make_user
+from tests.conftest import make_actor
 
 pytestmark = pytest.mark.property
 
@@ -38,7 +38,7 @@ def test_property_29_first_writer_wins(
 
     async def scenario():
         async with sessionmaker_() as session:
-            users = [await make_user(session, UserRole.DISPATCHER) for _ in range(contenders)]
+            actors = [make_actor() for _ in range(contenders)]
             alert = await alert_service.raise_alert(
                 session,
                 alert_type=alert_type,
@@ -46,7 +46,7 @@ def test_property_29_first_writer_wins(
                 entity_type=entity_type,
                 entity_id=uuid.uuid4(),
                 message=message,
-                acting_user=users[0].user_id,
+                acting_user=actors[0],
             )
             await session.commit()
             alert_id = alert.alert_id
@@ -61,7 +61,7 @@ def test_property_29_first_writer_wins(
                     await session.rollback()
                     return None
 
-        outcomes = await asyncio.gather(*(attempt(u.user_id) for u in users))
+        outcomes = await asyncio.gather(*(attempt(a) for a in actors))
         async with sessionmaker_() as session:
             stored = await session.get(Alert, alert_id)
             return outcomes, stored
@@ -88,7 +88,7 @@ def test_unacknowledged_alerts_deduplicate(
 
     async def scenario() -> int:
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             for _ in range(repeats):
                 await alert_service.raise_alert(
                     session,
@@ -97,18 +97,22 @@ def test_unacknowledged_alerts_deduplicate(
                     entity_type=AlertEntityType.ORDER,
                     entity_id=entity_id,
                     message="same condition",
-                    acting_user=user.user_id,
+                    acting_user=actor,
                 )
             await session.commit()
             rows = (
-                await session.execute(
-                    select(Alert).where(
-                        Alert.entity_id == entity_id,
-                        Alert.alert_type == alert_type.value,
-                        Alert.acknowledged.is_(False),
+                (
+                    await session.execute(
+                        select(Alert).where(
+                            Alert.entity_id == entity_id,
+                            Alert.alert_type == alert_type.value,
+                            Alert.acknowledged.is_(False),
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return len(list(rows))
 
     assert run_async(scenario()) == 1

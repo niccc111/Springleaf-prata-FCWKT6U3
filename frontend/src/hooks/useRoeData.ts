@@ -11,22 +11,20 @@ export const ORDERS_KEY = ['orders'] as const;
 export const VEHICLES_KEY = ['vehicles'] as const;
 export const SUMMARY_KEY = ['summary'] as const;
 
-export function useRoutes(enabled: boolean) {
+export function useRoutes() {
   return useQuery({
     queryKey: ROUTES_KEY,
     queryFn: () => api.listRoutes(),
-    enabled,
     // The WebSocket drives freshness; this is the safety net if it drops.
     refetchInterval: 30_000,
     staleTime: 5_000,
   });
 }
 
-export function useAlerts(enabled: boolean) {
+export function useAlerts() {
   const setAlerts = useAppStore((s) => s.setAlerts);
   return useQuery({
     queryKey: ALERTS_KEY,
-    enabled,
     queryFn: async () => {
       const alerts = await api.listAlerts({ acknowledged: false });
       setAlerts(alerts);
@@ -36,29 +34,26 @@ export function useAlerts(enabled: boolean) {
   });
 }
 
-export function useOrders(enabled: boolean) {
+export function useOrders() {
   return useQuery({
     queryKey: ORDERS_KEY,
     queryFn: () => api.listOrders(),
-    enabled,
     refetchInterval: 60_000,
   });
 }
 
-export function useVehicles(enabled: boolean) {
+export function useVehicles() {
   return useQuery({
     queryKey: VEHICLES_KEY,
     queryFn: () => api.listVehicles(),
-    enabled,
     refetchInterval: 120_000,
   });
 }
 
-export function useSummary(enabled: boolean) {
+export function useSummary() {
   const setPendingOrders = useAppStore((s) => s.setPendingOrders);
   return useQuery({
     queryKey: SUMMARY_KEY,
-    enabled,
     queryFn: async () => {
       const summary = await api.summary();
       setPendingOrders(summary.unassigned_orders);
@@ -68,11 +63,10 @@ export function useSummary(enabled: boolean) {
   });
 }
 
-export function useConnectivity(enabled: boolean) {
+export function useConnectivity() {
   const setConnectivity = useAppStore((s) => s.setConnectivity);
   return useQuery({
     queryKey: ['connectivity'],
-    enabled,
     queryFn: async () => {
       const statuses = await api.connectivity();
       setConnectivity(statuses);

@@ -14,7 +14,7 @@ from app.adapters.base import GeocodeCandidate
 from app.core.config import settings
 from app.core.errors import ValidationFailed
 from app.models.entities import Order, Vehicle
-from app.models.enums import OrderSource, UserRole, VehicleSource
+from app.models.enums import OrderSource, VehicleSource
 from app.schemas.entities import OrderCreate, VehicleCreate
 from app.schemas.geo import (
     CoordinateValidationError,
@@ -23,7 +23,7 @@ from app.schemas.geo import (
 )
 from app.services.geocoding_service import geocoding_service
 from app.services.manual_entry_service import manual_entry_service
-from tests.conftest import make_user
+from tests.conftest import make_actor
 from tests.property.strategies import addresses, geo_points, operating_hours
 
 pytestmark = pytest.mark.property
@@ -114,7 +114,7 @@ def test_property_8_manual_submissions_are_sourced_manual(
 
     async def scenario() -> tuple[Order, Vehicle]:
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             order = await manual_entry_service.create_order(
                 session,
                 OrderCreate(
@@ -123,7 +123,7 @@ def test_property_8_manual_submissions_are_sourced_manual(
                     cargo_volume_m3=volume,
                     priority=priority,
                 ),
-                user.user_id,
+                actor,
             )
             vehicle = await manual_entry_service.create_vehicle(
                 session,
@@ -134,7 +134,7 @@ def test_property_8_manual_submissions_are_sourced_manual(
                     operating_hours_start=start,
                     operating_hours_end=end,
                 ),
-                user.user_id,
+                actor,
             )
             await session.commit()
             return order, vehicle
@@ -230,19 +230,19 @@ def test_property_31_via_service(sessionmaker_, truncate, run_async, lat, lon):
 
     async def scenario() -> None:
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             order = await manual_entry_service.create_order(
                 session,
                 OrderCreate(
                     delivery_address="30 Raffles Place, Singapore 048622",
                     cargo_weight_kg=Decimal("10"),
                 ),
-                user.user_id,
+                actor,
             )
             await session.commit()
             with pytest.raises(ValidationFailed) as exc_info:
                 await manual_entry_service.set_order_coordinates(
-                    session, order.order_id, lat, lon, user.user_id
+                    session, order.order_id, lat, lon, actor
                 )
             assert exc_info.value.fields
 

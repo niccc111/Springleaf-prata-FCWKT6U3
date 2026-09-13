@@ -1,7 +1,9 @@
 """Application configuration.
 
 Every external integration is configurable and defaults to a safe local/mock
-adapter so the system runs end-to-end without third-party credentials.
+adapter so the system runs end-to-end without third-party credentials. The
+console itself has no authentication: there are no accounts, no passwords and
+no login step, so no credential settings appear here.
 """
 
 from __future__ import annotations
@@ -48,22 +50,6 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
     celery_task_always_eager: bool = False
-
-    # ---- Authentication --------------------------------------------------
-    jwt_secret_key: str = "change-me-in-production-roe-dev-secret-key"
-    jwt_algorithm: Literal["HS256", "RS256"] = "HS256"
-    jwt_issuer: str = "roe"
-    jwt_audience: str = "roe-api"
-    jwt_public_key: str | None = None
-    jwt_jwks_url: str | None = None
-    access_token_ttl_minutes: int = 15
-    refresh_token_ttl_hours: int = 24
-
-    # Seed administrator, created on first startup when the users table is empty.
-    bootstrap_admin_email: str = "admin@roe.app"
-    bootstrap_admin_password: str = "admin12345"
-    bootstrap_dispatcher_email: str | None = "dispatcher@roe.app"
-    bootstrap_dispatcher_password: str = "dispatch12345"
 
     # ---- External integrations ------------------------------------------
     oms_adapter: AdapterMode = "mock"

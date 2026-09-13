@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, status
 from sqlalchemy import select
 
-from app.api.deps import DispatcherOrAdmin, SessionDep
+from app.api.deps import ActorDep, SessionDep
 from app.core import events
 from app.core.errors import NotFound, OperationTimeout
 from app.core.logging import get_logger
@@ -27,17 +27,17 @@ router = APIRouter(tags=["optimisation"])
     summary="Run (or re-run) route optimisation",
 )
 async def optimise(
-    payload: OptimiseRequest, session: SessionDep, user: DispatcherOrAdmin
+    payload: OptimiseRequest, session: SessionDep, actor: ActorDep
 ) -> OptimisationRunRead:
     run = await optimisation_service.start_run(
-        session, acting_user=user.user_id, reoptimise=payload.reoptimise
+        session, acting_user=actor, reoptimise=payload.reoptimise
     )
     await session.commit()
     run_id = run.run_id
 
     try:
         await optimisation_service.execute_run(
-            session, run, acting_user=user.user_id, reoptimise=payload.reoptimise
+            session, run, acting_user=actor, reoptimise=payload.reoptimise
         )
         await session.commit()
     except TimeoutError as exc:
@@ -48,9 +48,7 @@ async def optimise(
         ) from exc
 
     run = await _reload(session, run_id)
-    routes = await route_service.list_routes(
-        session, run_id=run_id, include_completed=False
-    )
+    routes = await route_service.list_routes(session, run_id=run_id, include_completed=False)
     await events.publish(
         events.OPTIMISATION_COMPLETE,
         {
@@ -70,9 +68,7 @@ async def optimise(
     response_model=OptimisationRunRead | None,
     summary="The in-progress run, if any",
 )
-async def current_run(
-    session: SessionDep, user: DispatcherOrAdmin
-) -> OptimisationRunRead | None:
+async def current_run(session: SessionDep) -> OptimisationRunRead | None:
     run = await optimisation_service.active_run(session)
     return OptimisationRunRead.model_validate(run) if run else None
 
@@ -82,7 +78,7 @@ async def current_run(
     response_model=list[OptimisationRunRead],
     summary="Recent optimisation runs",
 )
-async def list_runs(session: SessionDep, user: DispatcherOrAdmin) -> list[OptimisationRunRead]:
+async def list_runs(session: SessionDep) -> list[OptimisationRunRead]:
     result = await session.execute(
         select(OptimisationRun).order_by(OptimisationRun.started_at.desc()).limit(25)
     )
@@ -94,9 +90,7 @@ async def list_runs(session: SessionDep, user: DispatcherOrAdmin) -> list[Optimi
     response_model=OptimisationRunRead,
     summary="A single optimisation run",
 )
-async def get_run(
-    run_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> OptimisationRunRead:
+async def get_run(run_id: uuid.UUID, session: SessionDep) -> OptimisationRunRead:
     return OptimisationRunRead.model_validate(await _reload(session, run_id))
 
 

@@ -12,13 +12,11 @@ export class RoeSocket {
   private listeners = new Set<Listener>();
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private token: string | null = null;
   private closedByUs = false;
 
   onStateChange: ((connected: boolean) => void) | null = null;
 
-  connect(token: string) {
-    this.token = token;
+  connect() {
     this.closedByUs = false;
     this.open();
   }
@@ -28,7 +26,7 @@ export class RoeSocket {
       ? API_PREFIX
       : `${window.location.origin}${API_PREFIX}`;
     const wsBase = base.replace(/^http/, 'ws');
-    return `${wsBase}/ws?token=${encodeURIComponent(this.token ?? '')}`;
+    return `${wsBase}/ws`;
   }
 
   private open() {

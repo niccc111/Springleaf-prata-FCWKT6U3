@@ -27,9 +27,11 @@ Built to the Kiro specification in `.kiro/specs/route-optimisation-engine/`.
   alerts, falling back to historical averages when the mapping service is down.
 - **Exports approved routes** to the delivery platform with exponential
   back-off retry and manual re-trigger.
-- **Alerts, audit trail, and RBAC** — overload, late-delivery, impossible-order
-  and export-failure alerts; an immutable 365-day audit log; dispatcher and
-  administrator roles.
+- **Alerts and an audit trail** — overload, late-delivery, impossible-order and
+  export-failure alerts; an immutable 365-day audit log covering every change.
+- **No sign-in** — the console opens straight to the plan. There are no
+  accounts, passwords or tokens anywhere in the system (see
+  [Access model](#access-model)).
 
 ---
 
@@ -48,9 +50,8 @@ docker compose exec api python scripts/seed_demo.py --orders 60 --vehicles 8
 - Dispatcher console: <http://localhost:5173>
 - API docs: <http://localhost:8000/docs>
 
-Sign in with `dispatcher@roe.app` / `dispatch12345`, or
-`admin@roe.app` / `admin12345` for the administrator view (audit log, user
-management, integration webhooks).
+The console opens directly on the dispatcher view — there is no sign-in step
+and no credentials to enter.
 
 ### Running locally without Docker
 
@@ -86,7 +87,7 @@ single API instance still delivers live updates.
          ▼                          ▼
    ┌──────────────────────────────────────────────┐
    │        API gateway / BFF (FastAPI)           │
-   │  JWT auth · RBAC · validation · error shape  │
+   │  open access · validation · error shape      │
    └──┬────────────┬──────────────┬───────────┬───┘
       │            │              │           │
    Route      Optimisation     Alert /     Upload /
@@ -155,7 +156,6 @@ credentials**, and an **HTTP adapter** for the real system. Switch with the
 | **FMS** (vehicles in) | In-memory queue + the same webhook shape | Polls `GET {FMS_BASE_URL}/vehicles/events` | `FMS_ADAPTER=http`, `FMS_BASE_URL`, `FMS_API_KEY` |
 | **Mapping** (geocode + matrix) | Deterministic: a Singapore gazetteer plus a stable hash fallback; travel times from great-circle distance × road factor × time-of-day traffic | Valhalla-compatible `GET /geocode`, `POST /matrix` | `MAPPING_ADAPTER=http`, `MAPPING_BASE_URL`, `MAPPING_API_KEY` |
 | **Delivery Platform** (routes out) | Records exports in memory and acknowledges | `POST {DELIVERY_PLATFORM_BASE_URL}/routes` | `DELIVERY_PLATFORM_ADAPTER=http`, `DELIVERY_PLATFORM_BASE_URL`, `DELIVERY_PLATFORM_API_KEY` |
-| **Identity** | Local user store with bcrypt passwords, ROE-issued JWTs | External IdP via RS256 | `JWT_ALGORITHM=RS256`, `JWT_PUBLIC_KEY` |
 | **Map tiles** | Self-contained offline basemap (routes/stops/depots always render) | Any raster or vector tile source | `VITE_MAP_TILE_URL` or `VITE_MAP_STYLE_URL` |
 
 **Nothing in the default configuration talks to a third party.** The mock
@@ -163,6 +163,29 @@ adapters are deterministic, which is also what makes the property tests
 reproducible.
 
 ---
+
+## Access model
+
+The system ships **without authentication**: no accounts, no passwords, no
+tokens, no login page, and no role checks. Every API endpoint and the whole
+console are open to anyone who can reach them.
+
+What that means in practice:
+
+- The console loads straight into the dispatcher view; the audit log is always
+  available from the header.
+- The API has no `/auth` or `/users` endpoints and the OpenAPI schema declares
+  no security schemes.
+- The WebSocket event stream at `/api/v1/ws` accepts any connection.
+- The audit trail (Requirement 16) is unchanged and still records every state
+  change with its before/after state and a UTC timestamp. Because there is no
+  signed-in user, each entry is attributed to one fixed console-operator
+  identity (`app.api.deps.CONSOLE_OPERATOR_ID`).
+
+**Deploy it only on a trusted network.** Anyone who can reach the API can read
+every order, edit the plan, and dispatch routes. If access control is ever
+needed, put it in front of the service (a VPN, an authenticating reverse proxy,
+or an identity-aware gateway) rather than reintroducing it here.
 
 ## Testing
 
@@ -183,7 +206,7 @@ npm test                 # vitest (includes fast-check property tests)
 
 # live end-to-end checks against a running API
 cd backend
-.venv/bin/python scripts/journey_check.py     # 57 API journey checks
+.venv/bin/python scripts/journey_check.py     # 53 API journey checks
 .venv/bin/python scripts/ws_check.py          # WebSocket event delivery
 .venv/bin/python scripts/resilience_check.py  # degraded-integration fallbacks
 
@@ -211,8 +234,8 @@ Hypothesis (backend) or fast-check (frontend) property tests — see
 backend/
   app/
     adapters/     OMS, FMS, Mapping, Delivery Platform (mock + HTTP)
-    api/v1/       REST routers, WebSocket hub, auth dependencies
-    core/         config, security, errors, events, logging
+    api/v1/       REST routers, WebSocket hub, request dependencies
+    core/         config, errors, events, logging
     db/           engine/session, custom SQLAlchemy types
     models/       SQLAlchemy ORM mirroring the design schema
     schemas/      Pydantic request/response models
@@ -226,7 +249,7 @@ frontend/
     components/   map, panels, forms, ui primitives, layout
     hooks/        React Query + WebSocket wiring
     lib/          API client, socket, geojson, utils, validation
-    pages/        login, dispatcher console
+    pages/        dispatcher console
     store/        Zustand store
 deploy/k8s/       production manifests
 docs/             traceability and design decisions

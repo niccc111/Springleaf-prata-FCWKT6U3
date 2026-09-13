@@ -15,8 +15,8 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-# FastAPI dependency parameters exist to enforce auth/RBAC even when the handler
-# body does not read them.
+# A FastAPI dependency parameter can exist for its side effect alone, without
+# the handler body reading it.
 "app/api/**" = ["ARG001"]
 "app/main.py" = ["ARG001"]
 "alembic/versions/*" = ["E", "F", "I", "UP", "RUF"]

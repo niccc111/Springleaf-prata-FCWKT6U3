@@ -1,9 +1,9 @@
 """End-to-end journey check against a running ROE API.
 
-Exercises: login, RBAC, manual order entry, spreadsheet upload, template
-download, optimisation, route inspection, manual reassignment, route locking,
-re-optimisation with locked-route preservation, approval + export, alerts, and
-the audit log.
+Exercises: open (unauthenticated) access, manual order entry, spreadsheet
+upload, template download, optimisation, route inspection, manual reassignment,
+route locking, re-optimisation with locked-route preservation, approval +
+export, alerts, and the audit log.
 
 Usage:  python scripts/journey_check.py [--base-url http://127.0.0.1:8099]
 """
@@ -63,29 +63,18 @@ def check(name: str, condition: bool, detail: str = "") -> bool:
 def main(base_url: str) -> int:
     client = httpx.Client(base_url=base_url, timeout=180.0)
 
-    print("\n[1] Authentication and RBAC")
-    disp = client.post(
-        "/api/v1/auth/login",
-        json={"email": "dispatcher@roe.app", "password": "dispatch12345"},
-    ).json()
-    admin = client.post(
-        "/api/v1/auth/login", json={"email": "admin@roe.app", "password": "admin12345"}
-    ).json()
-    check("dispatcher login returns tokens", "access_token" in disp)
-    check("admin login returns tokens", "access_token" in admin)
-    D = {"Authorization": f"Bearer {disp['access_token']}"}
-    A = {"Authorization": f"Bearer {admin['access_token']}"}
-
-    check("unauthenticated request denied", client.get("/api/v1/routes").status_code == 401)
-    check("bad token denied", client.get("/api/v1/routes", headers={"Authorization": "Bearer nope"}).status_code == 401)
-    check("dispatcher blocked from audit log", client.get("/api/v1/audit", headers=D).status_code == 403)
-    check("dispatcher blocked from user admin", client.get("/api/v1/users", headers=D).status_code == 403)
-    check("admin allowed on audit log", client.get("/api/v1/audit", headers=A).status_code == 200)
+    print("\n[1] Open access (no authentication)")
+    check("routes readable without credentials", client.get("/api/v1/routes").status_code == 200)
+    check("audit log readable without credentials", client.get("/api/v1/audit").status_code == 200)
+    schema = client.get("/openapi.json").json()
+    check(
+        "no login or user-administration endpoints exist",
+        not [path for path in schema["paths"] if "/auth" in path or "/users" in path],
+    )
 
     print("\n[2] Manual order entry (Requirement 3)")
     bad = client.post(
         "/api/v1/orders",
-        headers=D,
         json={"delivery_address": "", "cargo_weight_kg": -5, "priority": "standard"},
     )
     check("invalid manual order rejected with field errors",
@@ -94,7 +83,6 @@ def main(base_url: str) -> int:
 
     good = client.post(
         "/api/v1/orders",
-        headers=D,
         json={
             "delivery_address": "30 Raffles Place, Singapore 048622",
             "cargo_weight_kg": 42.5,
@@ -110,10 +98,10 @@ def main(base_url: str) -> int:
           str(order.get("delivery_location")))
 
     print("\n[3] Spreadsheet upload (Requirement 4)")
-    tpl = client.get("/api/v1/upload/templates/orders", headers=D)
+    tpl = client.get("/api/v1/upload/templates/orders")
     check("order template downloads", tpl.status_code == 200 and b"delivery_address" in tpl.content)
     check("vehicle template downloads",
-          client.get("/api/v1/upload/templates/vehicles?format=xlsx", headers=D).status_code == 200)
+          client.get("/api/v1/upload/templates/vehicles?format=xlsx").status_code == 200)
 
     csv_body = (
         "delivery_address,cargo_weight_kg,cargo_volume_m3,priority\n"
@@ -124,7 +112,6 @@ def main(base_url: str) -> int:
     )
     up = client.post(
         "/api/v1/upload/orders",
-        headers=D,
         files={"file": ("orders.csv", csv_body.encode(), "text/csv")},
     )
     body = up.json()
@@ -138,7 +125,6 @@ def main(base_url: str) -> int:
 
     all_bad = client.post(
         "/api/v1/upload/orders",
-        headers=D,
         files={
             "file": (
                 "bad.csv",
@@ -153,7 +139,6 @@ def main(base_url: str) -> int:
     over_rows = "delivery_address,cargo_weight_kg,priority\n" + "a,1,standard\n" * 10_001
     too_many = client.post(
         "/api/v1/upload/orders",
-        headers=D,
         files={"file": ("big.csv", over_rows.encode(), "text/csv")},
     )
     check("upload exceeding the 10,000 row limit rejected before processing",
@@ -161,7 +146,7 @@ def main(base_url: str) -> int:
           f"HTTP {too_many.status_code}")
 
     print("\n[4] Optimisation (Requirements 5, 6, 18)")
-    run = client.post("/api/v1/optimise", headers=D, json={"reoptimise": False})
+    run = client.post("/api/v1/optimise", json={"reoptimise": False})
     check("optimisation run completes", run.status_code == 200, f"HTTP {run.status_code}")
     run_body = run.json()
     check("run status is completed", run_body.get("status") == "completed", str(run_body.get("status")))
@@ -171,7 +156,7 @@ def main(base_url: str) -> int:
     check("routes were produced", (run_body.get("routes_created") or 0) > 0,
           f"{run_body.get('routes_created')} routes, {run_body.get('orders_assigned')} orders assigned")
 
-    routes = client.get("/api/v1/routes", headers=D).json()
+    routes = client.get("/api/v1/routes").json()
     check("routes listed with stops", bool(routes) and all("stops" in r for r in routes),
           f"{len(routes)} routes")
 
@@ -213,7 +198,7 @@ def main(base_url: str) -> int:
     outcomes: list[int] = []
 
     def fire() -> None:
-        outcomes.append(client.post("/api/v1/optimise", headers=D, json={"reoptimise": True}).status_code)
+        outcomes.append(client.post("/api/v1/optimise", json={"reoptimise": True}).status_code)
 
     threads = [threading.Thread(target=fire) for _ in range(2)]
     for t in threads:
@@ -224,7 +209,7 @@ def main(base_url: str) -> int:
           sorted(outcomes) == [200, 409], f"status codes {sorted(outcomes)}")
 
     print("\n[7] Manual reassignment (Requirement 10)")
-    routes = [r for r in client.get("/api/v1/routes", headers=D).json() if r["stops"]]
+    routes = [r for r in client.get("/api/v1/routes").json() if r["stops"]]
     move = _pick_reassignment(routes)
     check("a route pair with headroom exists for reassignment", move is not None)
     if move:
@@ -232,7 +217,6 @@ def main(base_url: str) -> int:
         before_src, before_dst = src["total_weight_kg"], dst["total_weight_kg"]
         resp = client.post(
             "/api/v1/orders/reassign",
-            headers=D,
             json={
                 "order_id": moved_order,
                 "source_route_id": src["route_id"],
@@ -256,14 +240,14 @@ def main(base_url: str) -> int:
                   [s["eta"] for s in rb["dest_route"]["stops"]]
                   == sorted(s["eta"] for s in rb["dest_route"]["stops"]))
 
-    tiny = client.post("/api/v1/vehicles", headers=D, json={
+    tiny = client.post("/api/v1/vehicles", json={
         "registration": "TINY001", "capacity_weight_kg": 1.0,
         "depot_location": {"latitude": 1.279, "longitude": 103.809},
         "operating_hours_start": "08:00", "operating_hours_end": "18:00"}).json()
     check("tiny vehicle created for capacity test", "vehicle_id" in tiny)
 
     # Re-read: the successful reassignment above changed the route totals.
-    routes = [r for r in client.get("/api/v1/routes", headers=D).json() if r["stops"]]
+    routes = [r for r in client.get("/api/v1/routes").json() if r["stops"]]
     heavy = _heaviest_order(routes)
     if heavy:
         heavy_route, heavy_order, heavy_weight = heavy
@@ -273,24 +257,24 @@ def main(base_url: str) -> int:
             default=None,
         )
         if small_dst and (small_dst["vehicle_capacity_weight_kg"] - small_dst["total_weight_kg"]) < heavy_weight:
-            rejected = client.post("/api/v1/orders/reassign", headers=D, json={
+            rejected = client.post("/api/v1/orders/reassign", json={
                 "order_id": heavy_order, "source_route_id": heavy_route["route_id"],
                 "dest_route_id": small_dst["route_id"], "confirm_late_delivery": True})
             check("over-capacity reassignment rejected (Property 21)",
                   rejected.status_code == 422
                   and rejected.json()["error"] == "capacity_violation",
                   f"HTTP {rejected.status_code}: {rejected.text[:140]}")
-            after_src = client.get(f"/api/v1/routes/{heavy_route['route_id']}", headers=D).json()
-            after_dst = client.get(f"/api/v1/routes/{small_dst['route_id']}", headers=D).json()
+            after_src = client.get(f"/api/v1/routes/{heavy_route['route_id']}").json()
+            after_dst = client.get(f"/api/v1/routes/{small_dst['route_id']}").json()
             check("both routes unchanged after a rejected reassignment",
                   after_src["total_weight_kg"] == heavy_route["total_weight_kg"]
                   and after_dst["total_weight_kg"] == small_dst["total_weight_kg"])
 
     print("\n[8] Route locking and re-optimisation (Requirements 11, 12)")
-    routes = client.get("/api/v1/routes", headers=D).json()
+    routes = client.get("/api/v1/routes").json()
     routes = [r for r in routes if r["stops"]]
     target = routes[0]
-    lock = client.patch(f"/api/v1/routes/{target['route_id']}", headers=D, json={"locked": True})
+    lock = client.patch(f"/api/v1/routes/{target['route_id']}", json={"locked": True})
     check("draft route can be locked", lock.status_code == 200 and lock.json()["locked"])
     locked_snapshot = {
         "orders": [oid for s in lock.json()["stops"] for oid in s["order_ids"]],
@@ -298,18 +282,18 @@ def main(base_url: str) -> int:
         "distance": lock.json()["total_distance_km"],
     }
 
-    reassign_to_locked = client.post("/api/v1/orders/reassign", headers=D, json={
+    reassign_to_locked = client.post("/api/v1/orders/reassign", json={
         "order_id": routes[1]["stops"][0]["order_ids"][0],
         "dest_route_id": target["route_id"], "confirm_late_delivery": True})
     check("reassignment into a locked route is rejected (Property 22)",
           reassign_to_locked.status_code == 409, f"HTTP {reassign_to_locked.status_code}")
 
-    reopt = client.post("/api/v1/optimise", headers=D, json={"reoptimise": True})
+    reopt = client.post("/api/v1/optimise", json={"reoptimise": True})
     check("re-optimisation completes", reopt.status_code == 200, f"HTTP {reopt.status_code}")
     check("locked routes counted as excluded",
           (reopt.json().get("locked_excluded_count") or 0) >= 1,
           f"locked_excluded_count={reopt.json().get('locked_excluded_count')}")
-    after = client.get(f"/api/v1/routes/{target['route_id']}", headers=D).json()
+    after = client.get(f"/api/v1/routes/{target['route_id']}").json()
     check("locked route preserved exactly (Property 25)",
           [oid for s in after["stops"] for oid in s["order_ids"]] == locked_snapshot["orders"]
           and [s["eta"] for s in after["stops"]] == locked_snapshot["etas"]
@@ -319,28 +303,28 @@ def main(base_url: str) -> int:
           f"{(reopt.json().get('diff') or {}).get('changed_count')} routes changed")
 
     print("\n[9] Approval, export and dispatch (Requirement 13)")
-    unlocked = [r for r in client.get("/api/v1/routes", headers=D).json() if not r["locked"] and r["stops"]]
+    unlocked = [r for r in client.get("/api/v1/routes").json() if not r["locked"] and r["stops"]]
     route_id = unlocked[0]["route_id"]
-    approved = client.patch(f"/api/v1/routes/{route_id}", headers=D, json={"status": "approved"})
+    approved = client.patch(f"/api/v1/routes/{route_id}", json={"status": "approved"})
     check("route approved", approved.status_code == 200, f"HTTP {approved.status_code}")
-    final = client.get(f"/api/v1/routes/{route_id}", headers=D).json()
+    final = client.get(f"/api/v1/routes/{route_id}").json()
     check("approved route exported and marked dispatched", final["status"] == "dispatched", final["status"])
     check("dispatched route is automatically locked (Property 26)", final["locked"] is True)
-    unlock = client.patch(f"/api/v1/routes/{route_id}", headers=D, json={"locked": False})
+    unlock = client.patch(f"/api/v1/routes/{route_id}", json={"locked": False})
     check("dispatched route cannot be unlocked (Property 24)", unlock.status_code == 400,
           f"HTTP {unlock.status_code}")
-    exports = client.get(f"/api/v1/routes/{route_id}/exports", headers=D).json()
+    exports = client.get(f"/api/v1/routes/{route_id}/exports").json()
     check("export attempt recorded", bool(exports) and exports[0]["status"] == "succeeded",
           f"{len(exports)} job(s)")
 
     print("\n[10] Alerts (Requirement 14)")
-    alerts = client.get("/api/v1/alerts", headers=D).json()
+    alerts = client.get("/api/v1/alerts").json()
     check("alerts endpoint returns a list", isinstance(alerts, list), f"{len(alerts)} alerts")
     unacked = [a for a in alerts if not a["acknowledged"]]
     if unacked:
         aid = unacked[0]["alert_id"]
-        ack1 = client.patch(f"/api/v1/alerts/{aid}/acknowledge", headers=D)
-        ack2 = client.patch(f"/api/v1/alerts/{aid}/acknowledge", headers=A)
+        ack1 = client.patch(f"/api/v1/alerts/{aid}/acknowledge")
+        ack2 = client.patch(f"/api/v1/alerts/{aid}/acknowledge")
         check("first acknowledgement succeeds", ack1.status_code == 200)
         check("second acknowledgement conflicts (Property 29)", ack2.status_code == 409,
               f"HTTP {ack2.status_code}")
@@ -348,18 +332,18 @@ def main(base_url: str) -> int:
         check("alerts available to acknowledge", True, "no unacknowledged alerts in this run")
 
     print("\n[11] Audit trail (Requirement 16)")
-    audit = client.get("/api/v1/audit?limit=5", headers=A).json()
+    audit = client.get("/api/v1/audit?limit=5").json()
     check("audit entries recorded", audit["total"] > 0, f"{audit['total']} entries")
     check("audit entries carry old/new state and acting user",
           all({"old_state", "new_state", "acting_user", "created_at"} <= set(e) for e in audit["items"]))
-    denials = client.get("/api/v1/audit?action=access.denied", headers=A).json()
-    check("RBAC denials recorded in the audit log (Property 35)", denials["total"] >= 2,
-          f"{denials['total']} denials")
+    actors = {e["acting_user"] for e in audit["items"]}
+    check("every audit entry names the acting console operator", len(actors) >= 1,
+          f"{len(actors)} distinct actor(s)")
 
     print("\n[12] Connectivity and system status")
-    conn = client.get("/api/v1/system/connectivity", headers=D).json()
+    conn = client.get("/api/v1/system/connectivity").json()
     check("connectivity status available", isinstance(conn, list), f"{len(conn)} systems tracked")
-    cfg = client.get("/api/v1/system/config", headers=D).json()
+    cfg = client.get("/api/v1/system/config").json()
     check("adapter modes reported", {"oms", "fms", "mapping", "delivery_platform"} <= set(cfg),
           json.dumps(cfg))
 

@@ -45,11 +45,8 @@ page.on('response', (r) => {
 
 try {
   await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
-  check('login page renders', await page.getByRole('heading', { name: /Route Optimisation Engine/i }).isVisible());
-
-  await page.getByLabel('Email').fill('dispatcher@roe.app');
-  await page.getByLabel('Password').fill('dispatch12345');
-  await page.getByRole('button', { name: /sign in/i }).click();
+  check('console opens straight to the plan (no sign-in step)',
+    await page.getByRole('heading', { name: /Route Optimisation Engine/i }).isVisible());
 
   try {
     await page.waitForSelector('[data-testid="map-canvas"]', { timeout: 20000 });

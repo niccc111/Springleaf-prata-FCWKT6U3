@@ -18,10 +18,10 @@ from app.core.errors import (
     RouteLockedError,
 )
 from app.models.entities import Alert, AuditLog, Route
-from app.models.enums import AlertType, RouteStatus, UserRole
+from app.models.enums import AlertType, RouteStatus
 from app.services.route_math import as_utc, build_schedule
 from app.services.route_service import route_service
-from tests.conftest import build_order, build_vehicle, make_user
+from tests.conftest import build_order, build_vehicle, make_actor
 from tests.property.strategies import geo_points, weights
 
 pytestmark = pytest.mark.property
@@ -44,9 +44,7 @@ async def _make_route(
     from app.models.enums import OptimisationRunStatus
     from app.services.route_math import StopPlan
 
-    vehicle = build_vehicle(
-        capacity_weight_kg=capacity_weight, capacity_volume_m3=capacity_volume
-    )
+    vehicle = build_vehicle(capacity_weight_kg=capacity_weight, capacity_volume_m3=capacity_volume)
     session.add(vehicle)
     run = OptimisationRun(
         run_id=uuid.uuid4(),
@@ -148,16 +146,16 @@ def test_property_26_dispatched_routes_are_locked(
 
     async def scenario() -> Route:
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             route = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[{"weight": weight, "location": point}],
                 status=RouteStatus.APPROVED,
             )
             await session.commit()
             updated = await route_service.update_route_status(
-                session, route.route_id, RouteStatus.DISPATCHED, user.user_id
+                session, route.route_id, RouteStatus.DISPATCHED, actor
             )
             await session.commit()
             return updated
@@ -186,10 +184,10 @@ def test_property_24_locking_state_machine(
 
     async def scenario() -> tuple[bool, Route | None]:
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             route = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[{"weight": Decimal("10"), "location": point}],
                 status=status,
                 locked=must_be_locked or action == "unlock",
@@ -198,9 +196,9 @@ def test_property_24_locking_state_machine(
             route_id = route.route_id
             try:
                 if action == "lock":
-                    result = await route_service.lock_route(session, route_id, user.user_id)
+                    result = await route_service.lock_route(session, route_id, actor)
                 else:
-                    result = await route_service.unlock_route(session, route_id, user.user_id)
+                    result = await route_service.unlock_route(session, route_id, actor)
                 await session.commit()
                 return True, result.locked
             except InvalidStateTransition:
@@ -215,8 +213,7 @@ def test_property_24_locking_state_machine(
         expected = status not in (RouteStatus.DISPATCHED, RouteStatus.COMPLETED)
 
     assert permitted is expected, (
-        f"{action} on a {status.value} route should be "
-        f"{'permitted' if expected else 'denied'}"
+        f"{action} on a {status.value} route should be " f"{'permitted' if expected else 'denied'}"
     )
     if permitted:
         assert locked is (action == "lock")
@@ -242,10 +239,10 @@ def test_property_20_and_23_reassignment_consistency_and_audit(
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             src = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[
                     {"weight": w, "volume": Decimal("0.10"), "location": points[i]}
                     for i, w in enumerate(src_weights)
@@ -253,7 +250,7 @@ def test_property_20_and_23_reassignment_consistency_and_audit(
             )
             dst = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[
                     {"weight": w, "volume": Decimal("0.10"), "location": points[4 + i]}
                     for i, w in enumerate(dst_weights)
@@ -271,7 +268,7 @@ def test_property_20_and_23_reassignment_consistency_and_audit(
                 order_id=moved_order,
                 dest_route_id=dst.route_id,
                 source_route_id=src.route_id,
-                acting_user=user.user_id,
+                acting_user=actor,
                 confirm_late_delivery=True,
             )
             await session.commit()
@@ -297,7 +294,7 @@ def test_property_20_and_23_reassignment_consistency_and_audit(
                 "source": _snapshot(source),
                 "dest": _snapshot(dest),
                 "moved_order": moved_order,
-                "user_id": user.user_id,
+                "user_id": actor,
                 "src_id": src_id,
                 "audit": [
                     {
@@ -314,15 +311,15 @@ def test_property_20_and_23_reassignment_consistency_and_audit(
     moved_order = data["moved_order"]
 
     for route in data["routes"]:
-        assert route["total_weight_kg"] == pytest.approx(route["stop_weight_sum"], abs=0.01), (
-            "total_weight_kg must equal the sum of assigned order weights"
-        )
-        assert route["etas"] == sorted(route["etas"]), (
-            "ETAs must increase monotonically along the sequence"
-        )
-        assert route["sequences"] == list(range(1, len(route["sequences"]) + 1)), (
-            "stop sequence must be 1..n"
-        )
+        assert route["total_weight_kg"] == pytest.approx(
+            route["stop_weight_sum"], abs=0.01
+        ), "total_weight_kg must equal the sum of assigned order weights"
+        assert route["etas"] == sorted(
+            route["etas"]
+        ), "ETAs must increase monotonically along the sequence"
+        assert route["sequences"] == list(
+            range(1, len(route["sequences"]) + 1)
+        ), "stop sequence must be 1..n"
 
     assert moved_order in data["dest"]["order_ids"]
     assert moved_order not in data["source"]["order_ids"]
@@ -373,10 +370,10 @@ def test_property_21_capacity_rejection(
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             src = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[
                     {
                         "weight": moving if not volume_case else Decimal("1"),
@@ -387,7 +384,7 @@ def test_property_21_capacity_rejection(
             )
             dst = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[
                     {
                         "weight": existing if not volume_case else Decimal("1"),
@@ -412,7 +409,7 @@ def test_property_21_capacity_rejection(
                     order_id=moved,
                     dest_route_id=dst_id,
                     source_route_id=src_id,
-                    acting_user=user.user_id,
+                    acting_user=actor,
                     confirm_late_delivery=True,
                 )
                 await session.commit()
@@ -433,9 +430,7 @@ def test_property_21_capacity_rejection(
 
     rejected, before, src_before, dst_after, src_after = run_async(scenario())
 
-    assert rejected is breaches, (
-        f"expected rejection={breaches} for the capacity configuration"
-    )
+    assert rejected is breaches, f"expected rejection={breaches} for the capacity configuration"
     if rejected:
         assert dst_after == before, "the destination route must be untouched"
         assert src_after == src_before, "the source route must be untouched"
@@ -443,9 +438,7 @@ def test_property_21_capacity_rejection(
 
 # Feature: route-optimisation-engine, Property 22: Locked route reassignment rejection
 @given(points=st.lists(geo_points(), min_size=4, max_size=4))
-def test_property_22_locked_destination_rejected(
-    sessionmaker_, truncate, run_async, points
-):
+def test_property_22_locked_destination_rejected(sessionmaker_, truncate, run_async, points):
     """A reassignment into a locked destination route is rejected and leaves
     both routes unchanged.
 
@@ -455,15 +448,15 @@ def test_property_22_locked_destination_rejected(
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             src = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[{"weight": Decimal("10"), "location": points[0]}],
             )
             dst = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[{"weight": Decimal("10"), "location": points[1]}],
                 locked=True,
             )
@@ -479,7 +472,7 @@ def test_property_22_locked_destination_rejected(
                     order_id=moved,
                     dest_route_id=dst_id,
                     source_route_id=src_id,
-                    acting_user=user.user_id,
+                    acting_user=actor,
                     confirm_late_delivery=True,
                 )
                 await session.commit()
@@ -528,10 +521,10 @@ def test_property_16_and_17_eta_recalculation(
 
     async def scenario():
         async with sessionmaker_() as session:
-            user = await make_user(session, UserRole.DISPATCHER)
+            actor = make_actor()
             route = await _make_route(
                 session,
-                user_id=user.user_id,
+                user_id=actor,
                 orders_spec=[
                     {
                         "weight": Decimal("10"),
@@ -549,9 +542,7 @@ def test_property_16_and_17_eta_recalculation(
             waypoints = [route.vehicle.depot_location, *[s.location for s in ordered]]
             slow = _matrix(waypoints, scale=slowdown)
 
-            await route_service.recalculate_etas(
-                session, route_id, matrix=slow, acting_user=user.user_id
-            )
+            await route_service.recalculate_etas(session, route_id, matrix=slow, acting_user=actor)
             await session.commit()
 
             refreshed = await route_service.get_route(session, route_id)
@@ -578,10 +569,7 @@ def test_property_16_and_17_eta_recalculation(
             return (
                 ordered_stops,
                 slow,
-                [
-                    {"severity": a.severity, "context": a.context}
-                    for a in alerts
-                ],
+                [{"severity": a.severity, "context": a.context} for a in alerts],
             )
 
     ordered, slow, alerts = run_async(scenario())
@@ -598,9 +586,9 @@ def test_property_16_and_17_eta_recalculation(
         current = current + timedelta(minutes=stop["service_duration_min"])
 
     for stop, want in zip(ordered, expected, strict=True):
-        assert abs((stop["eta"] - want).total_seconds()) < 2, (
-            "every downstream ETA must reflect cumulative travel time from the depot"
-        )
+        assert (
+            abs((stop["eta"] - want).total_seconds()) < 2
+        ), "every downstream ETA must reflect cumulative travel time from the depot"
 
     etas = [stop["eta"] for stop in ordered]
     assert etas == sorted(etas)
@@ -608,14 +596,13 @@ def test_property_16_and_17_eta_recalculation(
     late_stop_ids = {
         stop["stop_id"]
         for stop in ordered
-        if stop["time_window_end"] is not None
-        and stop["eta"] > as_utc(stop["time_window_end"])
+        if stop["time_window_end"] is not None and stop["eta"] > as_utc(stop["time_window_end"])
     }
     alerted_stop_ids = {
         uuid.UUID(a["context"]["stop_id"]) for a in alerts if a["context"].get("stop_id")
     }
-    assert late_stop_ids <= alerted_stop_ids, (
-        f"missing late delivery alerts for {late_stop_ids - alerted_stop_ids}"
-    )
+    assert (
+        late_stop_ids <= alerted_stop_ids
+    ), f"missing late delivery alerts for {late_stop_ids - alerted_stop_ids}"
     for alert in alerts:
         assert alert["severity"] == "warning"

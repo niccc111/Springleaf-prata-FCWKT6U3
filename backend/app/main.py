@@ -23,18 +23,18 @@ logger = get_logger(__name__)
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
-    from app.core.bootstrap import ensure_seed_users
     from app.db.session import dispose_engine, session_scope
     from app.workers.background import background_tasks
 
     try:
         async with session_scope() as session:
-            await ensure_seed_users(session)
             from app.services.optimisation_service import optimisation_service
 
+            # A run left "in progress" by a crash or restart can never finish;
+            # mark it aborted so the console is not stuck behind a phantom run.
             await optimisation_service.abort_all_in_progress(session)
     except Exception as exc:  # pragma: no cover - lets the API boot without a DB
-        logger.error("bootstrap_failed", error=str(exc))
+        logger.error("startup_recovery_failed", error=str(exc))
 
     await background_tasks.start()
     logger.info("roe_api_started", environment=settings.environment)
@@ -77,9 +77,7 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=exc.status_code, content=exc.to_payload())
 
     @app.exception_handler(RequestValidationError)
-    async def validation_handler(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         """Map Pydantic errors to the design's field-level error envelope."""
         fields = []
         for error in exc.errors():
@@ -97,12 +95,8 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_error_handler(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
-        code = {401: "unauthenticated", 403: "forbidden", 404: "not_found"}.get(
-            exc.status_code, "error"
-        )
+    async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "error")
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": code, "message": str(exc.detail)},

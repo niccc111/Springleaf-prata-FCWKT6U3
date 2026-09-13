@@ -68,18 +68,12 @@ class EntityType(StrEnum):
     ORDER = "order"
     ROUTE = "route"
     ALERT = "alert"
-    USER = "user"
 
 
 class AlertEntityType(StrEnum):
     VEHICLE = "vehicle"
     ORDER = "order"
     ROUTE = "route"
-
-
-class UserRole(StrEnum):
-    DISPATCHER = "dispatcher"
-    ADMINISTRATOR = "administrator"
 
 
 class ExportStatus(StrEnum):

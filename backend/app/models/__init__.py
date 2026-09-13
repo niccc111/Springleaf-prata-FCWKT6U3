@@ -11,7 +11,6 @@ from app.models.entities import (
     Stop,
     StopOrder,
     TravelTimeSample,
-    User,
     Vehicle,
 )
 
@@ -28,6 +27,5 @@ __all__ = [
     "Stop",
     "StopOrder",
     "TravelTimeSample",
-    "User",
     "Vehicle",
 ]

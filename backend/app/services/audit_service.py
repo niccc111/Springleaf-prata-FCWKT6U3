@@ -91,31 +91,6 @@ class AuditService:
         except Exception as exc:  # pragma: no cover - last-resort logging
             logger.error("error_log_write_failed", source=source, error=str(exc))
 
-    async def record_access_denial(
-        self,
-        session: AsyncSession,
-        *,
-        acting_user: uuid.UUID,
-        attempted_action: str,
-        role: str,
-        required_roles: list[str],
-    ) -> None:
-        """Requirement 17.5 — record every out-of-role attempt."""
-        await self.record_change(
-            session,
-            entity_id=acting_user,
-            entity_type=EntityType.USER,
-            action="access.denied",
-            acting_user=acting_user,
-            old_state=None,
-            new_state={
-                "attempted_action": attempted_action,
-                "role": role,
-                "required_roles": required_roles,
-                "denied_at": datetime.now(UTC).isoformat(),
-            },
-        )
-
     def build_query(
         self,
         *,

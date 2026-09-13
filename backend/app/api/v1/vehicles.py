@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, status
 from sqlalchemy import and_, func, select
 
-from app.api.deps import DispatcherOrAdmin, SessionDep
+from app.api.deps import ActorDep, SessionDep
 from app.core.errors import NotFound
 from app.models.entities import Vehicle
 from app.schemas.common import Page
@@ -21,7 +21,6 @@ router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 @router.get("", response_model=Page[VehicleRead], summary="List vehicles")
 async def list_vehicles(
     session: SessionDep,
-    user: DispatcherOrAdmin,
     available: Annotated[bool | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=100)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
@@ -40,9 +39,7 @@ async def list_vehicles(
         count_stmt = count_stmt.where(and_(*conditions))
 
     total = (await session.scalar(count_stmt)) or 0
-    result = await session.execute(
-        base.order_by(Vehicle.registration).limit(limit).offset(offset)
-    )
+    result = await session.execute(base.order_by(Vehicle.registration).limit(limit).offset(offset))
     return Page[VehicleRead](
         items=[VehicleRead.model_validate(v) for v in result.scalars().all()],
         total=total,
@@ -58,17 +55,15 @@ async def list_vehicles(
     summary="Create a vehicle manually (Requirement 3.2)",
 )
 async def create_vehicle(
-    payload: VehicleCreate, session: SessionDep, user: DispatcherOrAdmin
+    payload: VehicleCreate, session: SessionDep, actor: ActorDep
 ) -> VehicleRead:
-    vehicle = await manual_entry_service.create_vehicle(session, payload, user.user_id)
+    vehicle = await manual_entry_service.create_vehicle(session, payload, actor)
     await session.commit()
     return VehicleRead.model_validate(vehicle)
 
 
 @router.get("/{vehicle_id}", response_model=VehicleRead, summary="Get a vehicle")
-async def get_vehicle(
-    vehicle_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> VehicleRead:
+async def get_vehicle(vehicle_id: uuid.UUID, session: SessionDep) -> VehicleRead:
     vehicle = await session.get(Vehicle, vehicle_id)
     if vehicle is None:
         raise NotFound(f"Vehicle {vehicle_id} not found")
@@ -80,10 +75,8 @@ async def update_vehicle(
     vehicle_id: uuid.UUID,
     payload: VehicleUpdate,
     session: SessionDep,
-    user: DispatcherOrAdmin,
+    actor: ActorDep,
 ) -> VehicleRead:
-    vehicle = await manual_entry_service.update_vehicle(
-        session, vehicle_id, payload, user.user_id
-    )
+    vehicle = await manual_entry_service.update_vehicle(session, vehicle_id, payload, actor)
     await session.commit()
     return VehicleRead.model_validate(vehicle)

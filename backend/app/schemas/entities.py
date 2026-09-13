@@ -10,7 +10,6 @@ from typing import Annotated, Any
 from pydantic import (
     BaseModel,
     ConfigDict,
-    EmailStr,
     Field,
     field_serializer,
     field_validator,
@@ -30,7 +29,6 @@ from app.models.enums import (
     OrderStatus,
     Priority,
     RouteStatus,
-    UserRole,
     VehicleSource,
 )
 from app.schemas.geo import GeoPoint
@@ -392,49 +390,6 @@ class AuditLogRead(BaseModel):
     action: str
     acting_user: uuid.UUID
     created_at: datetime
-
-
-# --------------------------------------------------------------------------- #
-# Users and auth
-# --------------------------------------------------------------------------- #
-class UserRead(BaseModel):
-    model_config = ORM
-
-    user_id: uuid.UUID
-    email: EmailStr
-    full_name: str | None = None
-    role: UserRole
-    active: bool
-    created_at: datetime
-    updated_at: datetime
-
-
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
-    full_name: str | None = Field(default=None, max_length=200)
-    role: UserRole = UserRole.DISPATCHER
-
-
-class UserRoleUpdate(BaseModel):
-    role: UserRole
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: UserRead
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
 
 
 # --------------------------------------------------------------------------- #

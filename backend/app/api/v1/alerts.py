@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import DispatcherOrAdmin, SessionDep
+from app.api.deps import ActorDep, SessionDep
 from app.models.enums import AlertSeverity, AlertType
 from app.schemas.entities import AlertRead
 from app.services.alert_service import alert_service
@@ -19,7 +19,6 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 @router.get("", response_model=list[AlertRead], summary="List alerts")
 async def list_alerts(
     session: SessionDep,
-    user: DispatcherOrAdmin,
     acknowledged: Annotated[bool | None, Query()] = None,
     alert_type: Annotated[AlertType | None, Query()] = None,
     severity: Annotated[AlertSeverity | None, Query()] = None,
@@ -38,10 +37,8 @@ async def list_alerts(
     response_model=AlertRead,
     summary="Acknowledge an alert (first writer wins)",
 )
-async def acknowledge(
-    alert_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> AlertRead:
-    alert = await alert_service.acknowledge_alert(session, alert_id, user.user_id)
+async def acknowledge(alert_id: uuid.UUID, session: SessionDep, actor: ActorDep) -> AlertRead:
+    alert = await alert_service.acknowledge_alert(session, alert_id, actor)
     await session.commit()
     await alert_service.broadcast_acknowledged(alert)
     return AlertRead.model_validate(alert)

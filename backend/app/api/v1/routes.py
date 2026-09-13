@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import DispatcherOrAdmin, SessionDep
+from app.api.deps import ActorDep, SessionDep
 from app.core.errors import ValidationFailed
 from app.models.enums import RouteStatus
 from app.schemas.entities import (
@@ -26,7 +26,6 @@ router = APIRouter(tags=["routes"])
 @router.get("/routes", response_model=list[RouteRead], summary="List routes")
 async def list_routes(
     session: SessionDep,
-    user: DispatcherOrAdmin,
     status_filter: Annotated[RouteStatus | None, Query(alias="status")] = None,
     vehicle_id: Annotated[uuid.UUID | None, Query()] = None,
     include_completed: Annotated[bool, Query()] = True,
@@ -41,9 +40,7 @@ async def list_routes(
 
 
 @router.get("/routes/{route_id}", response_model=RouteRead, summary="Get a route with stops")
-async def get_route(
-    route_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> RouteRead:
+async def get_route(route_id: uuid.UUID, session: SessionDep) -> RouteRead:
     return route_service.serialise(await route_service.get_route(session, route_id))
 
 
@@ -56,21 +53,19 @@ async def patch_route(
     route_id: uuid.UUID,
     payload: RoutePatch,
     session: SessionDep,
-    user: DispatcherOrAdmin,
+    actor: ActorDep,
 ) -> RouteRead:
     if payload.locked is None and payload.status is None:
         raise ValidationFailed("Provide 'locked' and/or 'status' to update the route")
 
     route = await route_service.get_route(session, route_id)
     if payload.status is not None:
-        route = await route_service.update_route_status(
-            session, route_id, payload.status, user.user_id
-        )
+        route = await route_service.update_route_status(session, route_id, payload.status, actor)
     if payload.locked is not None:
         route = (
-            await route_service.lock_route(session, route_id, user.user_id)
+            await route_service.lock_route(session, route_id, actor)
             if payload.locked
-            else await route_service.unlock_route(session, route_id, user.user_id)
+            else await route_service.unlock_route(session, route_id, actor)
         )
     await session.commit()
 
@@ -79,7 +74,7 @@ async def patch_route(
 
     # Requirement 13.1 — approving a route exports it to the Delivery Platform.
     if payload.status is RouteStatus.APPROVED:
-        await _export_in_background(route_id, user.user_id)
+        await _export_in_background(route_id, actor)
         route = await route_service.get_route(session, route_id)
     return route_service.serialise(route)
 
@@ -89,10 +84,8 @@ async def patch_route(
     response_model=ExportJobRead,
     summary="Re-trigger the Delivery Platform export (Requirement 13.5)",
 )
-async def export_route(
-    route_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> ExportJobRead:
-    job = await export_service.export_route_now(session, route_id, user.user_id)
+async def export_route(route_id: uuid.UUID, session: SessionDep, actor: ActorDep) -> ExportJobRead:
+    job = await export_service.export_route_now(session, route_id, actor)
     await session.commit()
     return ExportJobRead.model_validate(job)
 
@@ -102,9 +95,7 @@ async def export_route(
     response_model=list[ExportJobRead],
     summary="Export attempt history for a route",
 )
-async def list_exports(
-    route_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> list[ExportJobRead]:
+async def list_exports(route_id: uuid.UUID, session: SessionDep) -> list[ExportJobRead]:
     jobs = await export_service.list_jobs(session, route_id)
     return [ExportJobRead.model_validate(job) for job in jobs]
 
@@ -114,10 +105,8 @@ async def list_exports(
     response_model=RouteRead,
     summary="Recalculate ETAs from current traffic (Requirement 7.2)",
 )
-async def recalculate(
-    route_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
-) -> RouteRead:
-    route = await route_service.recalculate_etas(session, route_id, acting_user=user.user_id)
+async def recalculate(route_id: uuid.UUID, session: SessionDep, actor: ActorDep) -> RouteRead:
+    route = await route_service.recalculate_etas(session, route_id, acting_user=actor)
     await session.commit()
     route = await route_service.get_route(session, route_id)
     await route_service.broadcast_route_updated(route, "etas_recalculated")
@@ -130,14 +119,14 @@ async def recalculate(
     summary="Manually reassign an order between routes (Requirement 10.1)",
 )
 async def reassign(
-    payload: ReassignRequest, session: SessionDep, user: DispatcherOrAdmin
+    payload: ReassignRequest, session: SessionDep, actor: ActorDep
 ) -> ReassignResponse:
     source, dest, late_ids = await route_service.reassign_order(
         session,
         order_id=payload.order_id,
         dest_route_id=payload.dest_route_id,
         source_route_id=payload.source_route_id,
-        acting_user=user.user_id,
+        acting_user=actor,
         position=payload.position,
         confirm_late_delivery=payload.confirm_late_delivery,
     )

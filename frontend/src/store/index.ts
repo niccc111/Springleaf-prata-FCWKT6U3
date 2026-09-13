@@ -1,39 +1,7 @@
-/** Zustand store: session, selection, live alerts, connectivity, and run state. */
+/** Zustand store: selection, live alerts, connectivity, and run state. */
 
 import { create } from 'zustand';
-import type {
-  Alert,
-  IntegrationStatus,
-  OptimisationRun,
-  RouteDiffEntry,
-  User,
-} from '@/types';
-
-const TOKEN_KEY = 'roe.tokens';
-
-export interface StoredTokens {
-  access_token: string;
-  refresh_token: string;
-  user: User;
-}
-
-export function readStoredTokens(): StoredTokens | null {
-  try {
-    const raw = localStorage.getItem(TOKEN_KEY);
-    return raw ? (JSON.parse(raw) as StoredTokens) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function writeStoredTokens(tokens: StoredTokens | null) {
-  try {
-    if (tokens) localStorage.setItem(TOKEN_KEY, JSON.stringify(tokens));
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* private browsing — session stays in memory only */
-  }
-}
+import type { Alert, IntegrationStatus, OptimisationRun, RouteDiffEntry } from '@/types';
 
 export interface Toast {
   id: string;
@@ -50,12 +18,6 @@ export interface RunProgress {
 }
 
 interface AppState {
-  // session
-  user: User | null;
-  accessToken: string | null;
-  refreshToken: string | null;
-  setSession: (tokens: StoredTokens | null) => void;
-
   // selection
   selectedRouteId: string | null;
   selectedStopId: string | null;
@@ -103,16 +65,6 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  user: null,
-  accessToken: null,
-  refreshToken: null,
-  setSession: (tokens) =>
-    set({
-      user: tokens?.user ?? null,
-      accessToken: tokens?.access_token ?? null,
-      refreshToken: tokens?.refresh_token ?? null,
-    }),
-
   selectedRouteId: null,
   selectedStopId: null,
   hoveredRouteId: null,

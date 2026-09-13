@@ -41,7 +41,6 @@ from app.models.enums import (
     OrderStatus,
     Priority,
     RouteStatus,
-    UserRole,
     VehicleSource,
 )
 from app.schemas.geo import GeoPoint
@@ -50,22 +49,6 @@ from app.schemas.geo import GeoPoint
 def _enum_check(column: str, enum_cls: type) -> str:
     values = ", ".join(f"'{member.value}'" for member in enum_cls)
     return f"{column} IN ({values})"
-
-
-class User(Base):
-    __tablename__ = "users"
-
-    user_id: Mapped[uuid.UUID] = uuid_pk()
-    email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    full_name: Mapped[str | None] = mapped_column(SafeText())
-    #: Local credential store. When an external IdP issues the JWTs this stays null.
-    password_hash: Mapped[str | None] = mapped_column(Text)
-    role: Mapped[str] = mapped_column(Text, nullable=False)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = created_at_column()
-    updated_at: Mapped[datetime] = updated_at_column()
-
-    __table_args__ = (CheckConstraint(_enum_check("role", UserRole), name="users_role"),)
 
 
 class Order(Base):
@@ -81,9 +64,7 @@ class Order(Base):
     time_window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     time_window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     priority: Mapped[str] = mapped_column(Text, nullable=False, default=Priority.STANDARD.value)
-    status: Mapped[str] = mapped_column(
-        Text, nullable=False, default=OrderStatus.UNASSIGNED.value
-    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=OrderStatus.UNASSIGNED.value)
     service_duration_min: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     geocode_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     geocode_confidence: Mapped[float | None] = mapped_column(Float)
@@ -318,9 +299,7 @@ class Alert(Base):
     __table_args__ = (
         CheckConstraint(_enum_check("alert_type", AlertType), name="alerts_type"),
         CheckConstraint(_enum_check("severity", AlertSeverity), name="alerts_severity"),
-        CheckConstraint(
-            "entity_type IN ('vehicle', 'order', 'route')", name="alerts_entity_type"
-        ),
+        CheckConstraint("entity_type IN ('vehicle', 'order', 'route')", name="alerts_entity_type"),
         Index(
             "idx_alerts_acknowledged",
             "acknowledged",
@@ -349,7 +328,7 @@ class AuditLog(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "entity_type IN ('order', 'vehicle', 'route', 'alert', 'user')",
+            "entity_type IN ('order', 'vehicle', 'route', 'alert')",
             name="audit_entity_type",
         ),
         Index("idx_audit_entity", "entity_type", "entity_id", "created_at"),
@@ -456,7 +435,6 @@ __all__ = [
     "Stop",
     "StopOrder",
     "TravelTimeSample",
-    "User",
     "Vehicle",
     "date",
 ]

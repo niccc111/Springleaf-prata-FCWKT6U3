@@ -17,12 +17,9 @@ from typing import Any, TypeVar
 
 import pytest
 
-os.environ.setdefault(
-    "DATABASE_URL", "postgresql+asyncpg://roe:roe@localhost:5432/roe_test"
-)
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://roe:roe@localhost:5432/roe_test")
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("REDIS_ENABLED", "false")
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-roe-suite")
 
 from hypothesis import HealthCheck, Verbosity
 from hypothesis import settings as hyp_settings
@@ -40,15 +37,13 @@ from app.adapters.delivery_platform import (
 )
 from app.adapters.mapping import MockMappingAdapter, set_mapping_adapter
 from app.core.config import settings
-from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import configure_engine
-from app.models.entities import Order, User, Vehicle
+from app.models.entities import Order, Vehicle
 from app.models.enums import (
     OrderSource,
     OrderStatus,
     Priority,
-    UserRole,
     VehicleSource,
 )
 from app.schemas.geo import GeoPoint
@@ -86,7 +81,6 @@ TABLES_IN_TRUNCATION_ORDER = [
     "travel_time_samples",
     "integration_status",
     "error_log",
-    "users",
 ]
 
 
@@ -255,32 +249,19 @@ def build_order(**overrides: Any) -> Order:
     return Order(**defaults)
 
 
-async def make_user(session: AsyncSession, role: UserRole = UserRole.DISPATCHER) -> User:
-    user = User(
-        user_id=uuid.uuid4(),
-        email=f"{uuid.uuid4().hex[:10]}@roe.app",
-        full_name="Test User",
-        password_hash=hash_password("test-password-123"),
-        role=role.value,
-        active=True,
-    )
-    session.add(user)
-    await session.flush()
-    return user
+def make_actor() -> uuid.UUID:
+    """An acting-operator id for audit attribution.
+
+    The console has no accounts, so an actor is simply the identity recorded on
+    the audit entry. Tests use distinct ids where they need to tell two
+    concurrent operators apart.
+    """
+    return uuid.uuid4()
 
 
 @pytest.fixture
-async def dispatcher(session) -> User:
-    user = await make_user(session, UserRole.DISPATCHER)
-    await session.commit()
-    return user
-
-
-@pytest.fixture
-async def administrator(session) -> User:
-    user = await make_user(session, UserRole.ADMINISTRATOR)
-    await session.commit()
-    return user
+def actor() -> uuid.UUID:
+    return make_actor()
 
 
 def planning_window(hours_from: int = 1, hours_to: int = 6) -> tuple[datetime, datetime]:

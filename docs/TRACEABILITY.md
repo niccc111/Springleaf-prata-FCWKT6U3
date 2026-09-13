@@ -3,6 +3,12 @@
 Maps every requirement, implementation task, and correctness property from
 `.kiro/specs/route-optimisation-engine/` to the code and tests that satisfy it.
 
+**One deliberate exception:** Requirement 17 (Access Control) and its two
+properties (35, 36) were withdrawn by the product owner — the system is to have
+no login and no credentials of any kind. Everything else in the specification is
+implemented. See [`DECISIONS.md` §6](DECISIONS.md) and the
+[Access model](../README.md#access-model).
+
 ---
 
 ## Requirements coverage
@@ -117,12 +123,8 @@ Maps every requirement, implementation task, and correctness property from
 | 16.4 | Immutable | `audit_no_update` / `audit_no_delete` rules | Property 33 |
 | 16.5 | Write failure rolls back the change | `AuditWriteError` re-raise | Property 34 |
 | 16.6 | Query within 5 s | composite index + `GET /audit` | integration |
-| **17** | Access control | `app/api/deps.py` | Properties 35, 36 |
-| 17.1 | Two roles | `UserRole` | integration |
-| 17.2/17.3 | Role matrix | `require_role` | Property 35 |
-| 17.4 | 401 unauthenticated | `get_current_user` | Property 36 |
-| 17.5 | Audit denials | `record_access_denial` | Property 35 |
-| 17.6 | Role change within 60 s | DB role is authoritative per request | `test_role_change_takes_effect_immediately` |
+| **17** | Access control | **Not implemented — withdrawn by the product owner** (see note below) | `test_every_endpoint_is_open_without_credentials`, `test_no_authentication_endpoints_are_exposed` |
+| 17.1–17.6 | Roles, role matrix, 401s, denial auditing | Removed: the system has no accounts, credentials or roles | The two tests above assert the absence of authentication |
 | **18** | Performance | — | benchmark + journey |
 | 18.1 | 2 s p95 at 50 sessions | stateless API, Redis fan-out, indexed queries | `deploy/k8s` sizing |
 | 18.2 | 500 × 50 in 120 s | two-phase CP-SAT | **69.0 s measured end to end** (solver alone 18.5 s) |
@@ -175,8 +177,8 @@ All 36 properties from the design document have a dedicated test carrying the
 | 32 — Audit entry per state change | `tests/property/test_audit_properties.py::test_property_32_state_changes_are_audited` |
 | 33 — Audit immutability | `…::test_property_33_audit_entries_are_immutable` |
 | 34 — Audit failure rolls back | `…::test_property_34_audit_failure_rolls_back_entity_change` |
-| 35 — RBAC denies out-of-role | `tests/property/test_rbac_properties.py::test_property_35_dispatcher_denied_admin_actions` |
-| 36 — All endpoints deny unauthenticated | `…::test_property_36_unauthenticated_requests_denied` |
+| 35 — RBAC denies out-of-role | **Withdrawn with Requirement 17** — there are no roles to deny |
+| 36 — All endpoints deny unauthenticated | **Withdrawn with Requirement 17** — inverted into `test_every_endpoint_is_open_without_credentials`, which asserts that every endpoint answers *without* credentials |
 
 ---
 
@@ -184,8 +186,8 @@ All 36 properties from the design document have a dedicated test carrying the
 
 | Script | Covers |
 |---|---|
-| `backend/scripts/journey_check.py` | 57 checks across the full API journey: auth, RBAC, manual entry, upload, optimisation, invariants, concurrency guard, reassignment, locking, re-optimisation, approval/export, alerts, audit |
-| `backend/scripts/ws_check.py` | WebSocket authentication and delivery of `optimisation.progress`, `optimisation.complete`, `route.updated`, `orders.pending`, `reoptimisation.suggested` |
+| `backend/scripts/journey_check.py` | 53 checks across the full API journey: open access, manual entry, upload, optimisation, invariants, concurrency guard, reassignment, locking, re-optimisation, approval/export, alerts, audit |
+| `backend/scripts/ws_check.py` | WebSocket delivery of `optimisation.progress`, `optimisation.complete`, `route.updated`, `orders.pending`, `reoptimisation.suggested` |
 | `backend/scripts/resilience_check.py` | 21 checks over the degraded paths: geocoding retry exhaustion and recovery, historical travel-time fallback, export back-off and manual re-trigger, connectivity thresholds |
 | `frontend/e2e/console.smoke.mjs` | 23 checks driving the built console in Chromium: map mount, route/stop selection, stop detail, drag-and-drop reassignment targets, alerts, manual entry validation, upload drawer |
 | `frontend/e2e/a11y.smoke.mjs` | 11 keyboard and screen-reader checks: skip link, focus indicator, tablist semantics and arrow-key navigation, labelled controls, announced errors, named icon buttons |
@@ -212,7 +214,7 @@ All 36 properties from the design document have a dedicated test carrying the
 | 12 — Checkpoint | ✅ | ingest suites green |
 | 13.1–13.12 — Optimisation + properties | ✅ | `services/optimisation_engine.py`, `optimisation_service.py` |
 | 14.1, 14.2 — Export + Property 28 | ✅ | `services/export_service.py` |
-| 15.1–15.8 — API gateway + properties | ✅ | `api/v1/`, `api/deps.py` |
+| 15.1–15.8 — API gateway + properties | ✅ | `api/v1/`, `api/deps.py` — 15.1's RBAC dependencies and 15.8's Properties 35/36 dropped with Requirement 17 |
 | 16 — Checkpoint | ✅ | backend suites green |
 | 17.1–17.6 — Map and route views | ✅ | `components/map/`, `components/panels/` |
 | 18.1–18.3 — Drag-drop, manual entry, upload | ✅ | `components/panels/RouteDetailPanel.tsx`, `components/forms/` |

@@ -69,16 +69,6 @@ class ConfirmationRequired(ROEError):
     error_code = "confirmation_required"
 
 
-class Unauthenticated(ROEError):
-    status_code = 401
-    error_code = "unauthenticated"
-
-
-class Forbidden(ROEError):
-    status_code = 403
-    error_code = "forbidden"
-
-
 class UploadRejected(ROEError):
     status_code = 413
     error_code = "upload_rejected"

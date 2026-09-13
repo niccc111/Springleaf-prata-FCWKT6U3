@@ -29,14 +29,9 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 try {
   await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
 
-  // Login is reachable by keyboard alone.
-  await page.keyboard.press('Tab');
-  await page.keyboard.type('dispatcher@roe.app');
-  await page.keyboard.press('Tab');
-  await page.keyboard.type('dispatch12345');
-  await page.keyboard.press('Enter');
+  // The console is open: the plan is on screen without any sign-in step.
   await page.waitForSelector('[data-testid="map-canvas"]', { timeout: 20000 });
-  check('sign-in completes using only the keyboard', true);
+  check('console reaches the plan with no sign-in step', true);
   await page.waitForTimeout(2000);
 
   // The skip link is the first tab stop and is visible when focused.
