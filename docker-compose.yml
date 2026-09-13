@@ -92,6 +92,10 @@ services:
   frontend:
     build:
       context: ./frontend
+      # The `dev` stage runs Vite on 5173 and proxies /api (and the WebSocket)
+      # to the API container. The final `prod` stage serves the built bundle
+      # from nginx on port 80 instead and is what deploy/k8s uses.
+      target: dev
     environment:
       VITE_API_PROXY: http://api:8000
     ports:
