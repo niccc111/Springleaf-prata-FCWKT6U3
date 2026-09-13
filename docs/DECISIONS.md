@@ -234,3 +234,19 @@ earliest stop ETA) before falling back to the earliest delivery window and then
 to the creation date. A route is already committed to a day; recalculating its
 ETAs for new traffic, or reassigning an order onto it, must not silently move
 the whole route to today.
+
+## 19. OR-Tools is a version range, not a pin
+
+Every other dependency is pinned exactly. OR-Tools is the one exception,
+because it ships per-Python-version wheels and no single release covers the
+Python versions this project is expected to run on: 9.11 has no build for
+Python 3.13+, and the 9.15 line has none for older interpreters. A hard pin
+therefore makes `pip install` fail outright on whichever Python the pin was
+not chosen for — the error names OR-Tools but the real cause is the
+interpreter.
+
+`ortools>=9.11,<10` lets each Python resolve a build it can install. Both ends
+of the range are tested: the suite and the live journey checks pass on
+9.11.4210 and on 9.15.6755, including the capacity, time-window and
+priority-ordering invariants that a solver change could plausibly disturb. The
+major-version ceiling stays because a 10.x release may change the CP-SAT API.

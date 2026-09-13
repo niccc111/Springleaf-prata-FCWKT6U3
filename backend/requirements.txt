@@ -8,7 +8,11 @@ redis==5.2.1
 pydantic==2.10.4
 pydantic-settings==2.7.0
 email-validator==2.2.0
-ortools==9.11.4210
+# OR-Tools ships per-Python-version wheels: 9.11 has none for Python 3.13+,
+# and the 9.15 line has none for older interpreters. The range lets each
+# Python pick a build it can actually install. Both ends are tested — see
+# docs/DECISIONS.md.
+ortools>=9.11,<10
 celery[redis]==5.4.0
 boto3==1.35.90
 openpyxl==3.1.5
