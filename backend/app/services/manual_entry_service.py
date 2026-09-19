@@ -178,6 +178,53 @@ class ManualEntryService:
         )
         return order
 
+    async def delete_order(
+        self,
+        session: AsyncSession,
+        order_id: uuid.UUID,
+        acting_user: uuid.UUID,
+    ) -> None:
+        """Delete an order that is not committed to a dispatched/completed route.
+
+        The same guard as editing applies (Requirement 3.6): once a route has
+        been dispatched to a driver the orders on it are frozen. Any planning
+        stop-links on non-frozen routes are removed first so the foreign key on
+        ``stop_orders`` is satisfied; the geocoding-queue row cascades away.
+        """
+        order = await session.get(Order, order_id)
+        if order is None:
+            raise NotFound(f"Order {order_id} not found")
+        await self._assert_editable(session, order_id)
+
+        old_state = order.to_dict()
+        # Detach the order from any planning stops (routes that are still
+        # editable). This leaves the stop in place; re-optimisation will tidy up.
+        links = await session.scalars(
+            select(StopOrder).where(StopOrder.order_id == order_id)
+        )
+        for link in links:
+            await session.delete(link)
+        await session.flush()
+
+        try:
+            await session.delete(order)
+            await session.flush()
+        except SQLAlchemyError as exc:
+            logger.error("order_delete_failed", order_id=str(order_id), error=str(exc))
+            raise PersistenceFailure(
+                "The order could not be deleted. Nothing was changed — try again."
+            ) from exc
+
+        await audit_service.record_change(
+            session,
+            entity_id=order_id,
+            entity_type=EntityType.ORDER,
+            action="order.deleted",
+            acting_user=acting_user,
+            old_state=old_state,
+            new_state=None,
+        )
+
     async def _assert_editable(self, session: AsyncSession, order_id: uuid.UUID) -> None:
         """Requirement 3.6 — editing is blocked once the route is dispatched."""
         status = await session.scalar(

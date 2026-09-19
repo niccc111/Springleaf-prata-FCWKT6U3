@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 from sqlalchemy import and_, func, select
 
 from app.api.deps import DispatcherOrAdmin, SessionDep
@@ -131,6 +131,21 @@ async def update_order(
     await session.commit()
     route_ids = await _route_ids_for(session, [order_id])
     return _read(order, route_ids.get(order_id))
+
+
+@router.delete(
+    "/{order_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an order (Requirement 3.6)",
+)
+async def delete_order(
+    order_id: uuid.UUID, session: SessionDep, user: DispatcherOrAdmin
+) -> Response:
+    await manual_entry_service.delete_order(session, order_id, user.user_id)
+    # Keep the unassigned-order count in sync for connected dispatchers.
+    await optimisation_service.notify_pending_orders(session)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

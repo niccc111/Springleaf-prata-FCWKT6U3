@@ -23,6 +23,7 @@ logger = get_logger(__name__)
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
+    settings.validate_production_safety()
     from app.core.bootstrap import ensure_seed_users
     from app.db.session import dispose_engine, session_scope
     from app.workers.background import background_tasks

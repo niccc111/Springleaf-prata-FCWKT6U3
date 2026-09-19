@@ -71,11 +71,24 @@ export function loadLevel(utilisation: number | null | undefined): LoadLevel {
   return 'normal';
 }
 
+/**
+ * Timezone used to display all times to the dispatcher. Times from the API are
+ * absolute (UTC) instants; the operating region works in this zone. Configurable
+ * via VITE_DISPLAY_TIMEZONE, defaulting to Singapore.
+ */
+export const DISPLAY_TIMEZONE =
+  (import.meta.env.VITE_DISPLAY_TIMEZONE as string | undefined) ?? 'Asia/Singapore';
+
 export function formatTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: DISPLAY_TIMEZONE,
+  });
 }
 
 export function formatDateTime(iso: string | null | undefined): string {
@@ -88,6 +101,7 @@ export function formatDateTime(iso: string | null | undefined): string {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    timeZone: DISPLAY_TIMEZONE,
   });
 }
 

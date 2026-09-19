@@ -83,6 +83,25 @@ export function validateOrder(values: OrderFormValues): Record<string, string> {
     errors.time_window_end = 'Must be at or after the window start';
   }
 
+  // A delivery window must fall on the day being planned (today). The optimiser
+  // plans one day at a time, so a window dated tomorrow can never be served and
+  // would otherwise fail only after optimisation with a "cannot be planned" alert.
+  const today = new Date();
+  const isToday = (value: string): boolean => {
+    const d = new Date(value);
+    return (
+      d.getFullYear() === today.getFullYear() &&
+      d.getMonth() === today.getMonth() &&
+      d.getDate() === today.getDate()
+    );
+  };
+  if (values.time_window_start && !isToday(values.time_window_start)) {
+    errors.time_window_start = 'Window must be today. Orders are planned for the current day.';
+  }
+  if (values.time_window_end && !isToday(values.time_window_end)) {
+    errors.time_window_end = 'Window must be today. Orders are planned for the current day.';
+  }
+
   return errors;
 }
 

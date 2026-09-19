@@ -20,7 +20,12 @@ coverage/
 # Environment
 .env
 .env.local
+.env.prod
+.env.*.local
 *.local
+# Keep the tracked templates.
+!.env.example
+!.env.prod.example
 
 # Editors / OS
 .DS_Store

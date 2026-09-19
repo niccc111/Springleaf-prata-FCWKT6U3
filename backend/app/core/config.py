@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -28,6 +29,11 @@ class Settings(BaseSettings):
     environment: Literal["local", "test", "staging", "production"] = "local"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    #: IANA timezone the operating region works in. Vehicle operating hours are
+    #: stored as wall-clock times and interpreted in this zone (e.g. an 08:00
+    #: shift start means 08:00 local time). Order time windows remain absolute
+    #: (UTC) instants. Defaults to Singapore.
+    business_timezone: str = "Asia/Singapore"
     #: NoDecode keeps pydantic-settings from JSON-parsing the raw value, so a
     #: plain comma-separated .env entry works as well as a JSON array.
     cors_origins: Annotated[list[str], NoDecode] = Field(
@@ -138,9 +144,65 @@ class Settings(BaseSettings):
         return value
 
     @property
+    def is_production(self) -> bool:
+        return self.environment in ("staging", "production")
+
+    @property
+    def business_tzinfo(self) -> ZoneInfo:
+        """Resolved tzinfo for :attr:`business_timezone`.
+
+        Falls back to UTC if the configured zone name is not available on the
+        host, so a bad value degrades gracefully rather than crashing planning.
+        """
+        try:
+            return ZoneInfo(self.business_timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            return ZoneInfo("UTC")
+
+    @property
     def sync_database_url(self) -> str:
         """Synchronous DSN used by Alembic and management commands."""
         return self.database_url.replace("+asyncpg", "+psycopg")
+
+    def validate_production_safety(self) -> None:
+        """Fail fast when a deployed environment still uses insecure defaults.
+
+        Called at application startup. In ``staging``/``production`` this refuses
+        to boot with the placeholder JWT secret, disabled auth, or the seeded
+        demo passwords, so an accidentally-shipped dev config cannot expose the
+        API. Local/test environments are left untouched.
+        """
+        if not self.is_production:
+            return
+
+        problems: list[str] = []
+        if self.auth_disabled:
+            problems.append("AUTH_DISABLED must be false in a deployed environment")
+        if "change-me" in self.jwt_secret_key or len(self.jwt_secret_key) < 32:
+            problems.append(
+                "JWT_SECRET_KEY must be set to a strong random value "
+                "(>= 32 chars, no placeholder text)"
+            )
+        weak_passwords = {"admin12345", "dispatch12345", "", "password", "changeme"}
+        if self.bootstrap_admin_password in weak_passwords:
+            problems.append("BOOTSTRAP_ADMIN_PASSWORD must be changed from the demo default")
+        if self.bootstrap_dispatcher_password in weak_passwords:
+            problems.append(
+                "BOOTSTRAP_DISPATCHER_PASSWORD must be changed from the demo default"
+            )
+        if not self.cors_origins or any(
+            "localhost" in origin or "127.0.0.1" in origin for origin in self.cors_origins
+        ):
+            problems.append(
+                "CORS_ORIGINS must list your public origin(s), not localhost"
+            )
+
+        if problems:
+            raise RuntimeError(
+                "Refusing to start in "
+                f"{self.environment!r} with insecure configuration:\n  - "
+                + "\n  - ".join(problems)
+            )
 
     def export_backoff_schedule(self) -> list[float]:
         """Delays (seconds) preceding each retry attempt: 5s, 10s, 20s."""

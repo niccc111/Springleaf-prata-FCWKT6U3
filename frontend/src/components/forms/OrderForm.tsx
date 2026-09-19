@@ -126,7 +126,12 @@ export function OrderForm({ onSubmit, onCreated }: OrderFormProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field id="time_window_start" label="Window opens" error={errors.time_window_start}>
+        <Field
+          id="time_window_start"
+          label="Window opens"
+          error={errors.time_window_start}
+          hint="Optional. Leave both blank for any time today. If set, use today's date."
+        >
           <Input
             id="time_window_start"
             type="datetime-local"

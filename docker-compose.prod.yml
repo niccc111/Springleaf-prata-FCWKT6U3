@@ -1,36 +1,35 @@
-# Local development stack for the Route Optimisation Engine.
+# Production stack for the Route Optimisation Engine on a single host
+# (e.g. an AWS Lightsail Ubuntu VM).
 #
-#   docker compose up --build
-#   docker compose exec api alembic upgrade head
-#   docker compose exec api python scripts/seed_demo.py
+#   cp backend/.env.prod.example backend/.env.prod   # then edit secrets
+#   docker compose -f docker-compose.prod.yml --env-file backend/.env.prod up -d --build
 #
-# The API is on http://localhost:8000 (docs at /docs) and the dispatcher UI on
-# http://localhost:5173.
+# Only the frontend (nginx) is published to the host on port 80. It serves the
+# built SPA and reverse-proxies /api and the WebSocket to the API container.
+# Postgres and Redis stay on the internal network and are never exposed.
 
-name: roe
+name: roe-prod
 
 services:
   postgres:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: roe
-      POSTGRES_PASSWORD: roe
-      POSTGRES_DB: roe
-    ports:
-      - '5432:5432'
+      POSTGRES_USER: ${POSTGRES_USER:-roe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+      POSTGRES_DB: ${POSTGRES_DB:-roe}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U roe -d roe']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-roe} -d ${POSTGRES_DB:-roe}']
       interval: 5s
       timeout: 3s
       retries: 20
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ['redis-server', '--appendonly', 'yes']
-    ports:
-      - '6379:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -42,18 +41,18 @@ services:
   api:
     build:
       context: ./backend
+    restart: unless-stopped
     command: >
       sh -c "alembic upgrade head &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000"
-    env_file: [./backend/.env]
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
+    env_file: [./backend/.env.prod]
     environment:
-      DATABASE_URL: postgresql+asyncpg://roe:roe@postgres:5432/roe
+      # Derived connection strings override any placeholders in the env file so
+      # the app always talks to the in-network services.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-roe}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-roe}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
-      CORS_ORIGINS: http://localhost:5173
-    ports:
-      - '8000:8000'
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -66,10 +65,11 @@ services:
   worker:
     build:
       context: ./backend
+    restart: unless-stopped
     command: ['celery', '-A', 'app.workers.celery_app.celery_app', 'worker', '--loglevel=info']
-    env_file: [./backend/.env]
+    env_file: [./backend/.env.prod]
     environment:
-      DATABASE_URL: postgresql+asyncpg://roe:roe@postgres:5432/roe
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-roe}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-roe}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
@@ -79,10 +79,11 @@ services:
   beat:
     build:
       context: ./backend
+    restart: unless-stopped
     command: ['celery', '-A', 'app.workers.celery_app.celery_app', 'beat', '--loglevel=info']
-    env_file: [./backend/.env]
+    env_file: [./backend/.env.prod]
     environment:
-      DATABASE_URL: postgresql+asyncpg://roe:roe@postgres:5432/roe
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-roe}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-roe}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
@@ -92,14 +93,12 @@ services:
   frontend:
     build:
       context: ./frontend
-      target: dev
-    environment:
-      VITE_API_PROXY: http://api:8000
-      # Street basemap for the Singapore service area (no API key required).
-      VITE_MAP_TILE_URL: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-      VITE_MAP_ATTRIBUTION: '© OpenStreetMap contributors'
+      target: prod
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    restart: unless-stopped
     ports:
-      - '5173:5173'
+      - '80:80'
     depends_on:
       api: { condition: service_healthy }
 

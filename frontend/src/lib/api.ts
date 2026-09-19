@@ -128,6 +128,8 @@ export const api = {
     request<Order>('/orders', { method: 'POST', ...json(payload) }),
   updateOrder: (orderId: string, payload: Record<string, unknown>) =>
     request<Order>(`/orders/${orderId}`, { method: 'PATCH', ...json(payload) }),
+  deleteOrder: (orderId: string) =>
+    request<void>(`/orders/${orderId}`, { method: 'DELETE' }),
   setOrderCoordinates: (orderId: string, latitude: number, longitude: number) =>
     request<Order>(`/orders/${orderId}/coordinates`, {
       method: 'POST',

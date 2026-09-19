@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.adapters.base import TravelMatrix
+from app.core.config import settings
 from app.schemas.geo import GeoPoint
 
 THREE_DP = Decimal("0.001")
@@ -75,17 +76,20 @@ def as_utc(value: datetime) -> datetime:
 
 
 def shift_start(planning_day: date, operating_hours_start: time) -> datetime:
-    """Vehicle shift start on the planning day, in UTC.
+    """Vehicle shift start on the planning day, returned as a UTC instant.
 
-    Operating hours are stored as wall-clock times and interpreted in UTC; a
-    deployment in a single operating region can set the container timezone to
-    shift this consistently.
+    Operating hours are stored as wall-clock times and interpreted in the
+    configured business timezone (``settings.business_timezone``, default
+    Asia/Singapore), then converted to UTC for the solver. So an ``08:00``
+    shift start means 08:00 local time, not 08:00 UTC.
     """
-    return datetime.combine(planning_day, operating_hours_start, tzinfo=UTC)
+    local = datetime.combine(planning_day, operating_hours_start, tzinfo=settings.business_tzinfo)
+    return local.astimezone(UTC)
 
 
 def shift_end(planning_day: date, operating_hours_end: time) -> datetime:
-    return datetime.combine(planning_day, operating_hours_end, tzinfo=UTC)
+    local = datetime.combine(planning_day, operating_hours_end, tzinfo=settings.business_tzinfo)
+    return local.astimezone(UTC)
 
 
 def build_schedule(
@@ -201,4 +205,11 @@ def utilisation_pct(total: Decimal | float | None, capacity: Decimal | float | N
 
 
 def planning_day_for(reference: datetime | None = None) -> date:
-    return as_utc(reference or datetime.now(UTC)).date()
+    """The calendar day to plan, in the configured business timezone.
+
+    Using the local date keeps "today" aligned with the dispatcher's day: at
+    07:00 SGT it is still the same local date even though UTC may read the
+    previous day.
+    """
+    instant = as_utc(reference or datetime.now(UTC))
+    return instant.astimezone(settings.business_tzinfo).date()

@@ -11,9 +11,10 @@ import {
   PlusCircle,
   Route as RouteIcon,
   ScrollText,
+  Trash2,
   Truck,
 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertPanel } from '@/components/panels/AlertPanel';
 import { AuditLogModal } from '@/components/panels/AuditLogModal';
 import { OptimiseControls } from '@/components/panels/OptimiseControls';
@@ -42,6 +43,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, ApiError } from '@/lib/api';
 import { cn, pluralise } from '@/lib/utils';
+import type { Order } from '@/types';
 import {
   findRoute,
   useAlerts,
@@ -547,6 +549,10 @@ function DataEntryDialog({
               <FileSpreadsheet className="h-3.5 w-3.5" />
               Upload vehicles
             </TabsTrigger>
+            <TabsTrigger value="manage-orders">
+              <ListChecks className="h-3.5 w-3.5" />
+              Manage orders
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="order">
@@ -604,8 +610,145 @@ function DataEntryDialog({
               }}
             />
           </TabsContent>
+
+          <TabsContent value="manage-orders">
+            <ManageOrdersTab open={open} onChanged={onChanged} />
+          </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ManageOrdersTab({
+  open,
+  onChanged,
+}: {
+  open: boolean;
+  onChanged: () => void;
+}) {
+  const pushToast = useAppStore((s) => s.pushToast);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Order | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const page = await api.listOrders({ limit: 300 });
+      setOrders(page.items);
+    } catch {
+      setLoadError('Could not load orders. Try reopening this tab.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load whenever the dialog opens so the list is always current.
+  useEffect(() => {
+    if (open) void refresh();
+  }, [open, refresh]);
+
+  const confirmDelete = async (order: Order) => {
+    setDeletingId(order.order_id);
+    try {
+      await api.deleteOrder(order.order_id);
+      setOrders((prev) => prev.filter((o) => o.order_id !== order.order_id));
+      pushToast({
+        title: 'Order deleted',
+        description: order.delivery_address,
+        variant: 'success',
+      });
+      onChanged();
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : 'The order could not be deleted. Nothing was changed — try again.';
+      pushToast({ title: 'Delete failed', description: message, variant: 'destructive' });
+    } finally {
+      setDeletingId(null);
+      setPendingDelete(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Delete orders that are not yet on a dispatched route.
+        </p>
+        <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </Button>
+      </div>
+
+      {loadError && (
+        <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs">
+          {loadError}
+        </p>
+      )}
+
+      {!loadError && orders.length === 0 && !loading && (
+        <p className="rounded-md border border-border p-3 text-center text-xs text-muted-foreground">
+          No orders yet. Create one from the Order tab.
+        </p>
+      )}
+
+      <ul className="max-h-80 space-y-1.5 overflow-y-auto">
+        {orders.map((order) => (
+          <li
+            key={order.order_id}
+            className="flex items-center justify-between gap-3 rounded-md border border-border p-2"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{order.delivery_address}</p>
+              <p className="text-xs text-muted-foreground">
+                {order.priority} · {order.status} · {order.cargo_weight_kg} kg
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="shrink-0"
+              disabled={deletingId === order.order_id}
+              onClick={() => setPendingDelete(order)}
+              aria-label={`Delete order at ${order.delivery_address}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </Button>
+          </li>
+        ))}
+      </ul>
+
+      <Dialog open={pendingDelete !== null} onOpenChange={(v) => !v && setPendingDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this order?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the order for{' '}
+              <span className="font-medium">{pendingDelete?.delivery_address}</span>. This cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deletingId !== null}
+              onClick={() => pendingDelete && void confirmDelete(pendingDelete)}
+            >
+              {deletingId ? 'Deleting…' : 'Delete order'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
