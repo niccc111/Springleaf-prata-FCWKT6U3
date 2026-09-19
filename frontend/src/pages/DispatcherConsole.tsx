@@ -7,7 +7,6 @@ import {
   Bell,
   FileSpreadsheet,
   ListChecks,
-  LogOut,
   Package,
   PlusCircle,
   Route as RouteIcon,
@@ -63,7 +62,7 @@ interface PendingReassign extends DragPayload {
   message: string;
 }
 
-export function DispatcherConsole({ onSignOut }: { onSignOut: () => void }) {
+export function DispatcherConsole() {
   const user = useAppStore((s) => s.user);
   const selectedRouteId = useAppStore((s) => s.selectedRouteId);
   const selectedStopId = useAppStore((s) => s.selectedStopId);
@@ -264,9 +263,6 @@ export function DispatcherConsole({ onSignOut }: { onSignOut: () => void }) {
               {user?.email}
             </span>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={onSignOut} aria-label="Sign out">
-            <LogOut className="h-4 w-4" />
-          </Button>
         </div>
       </header>
 

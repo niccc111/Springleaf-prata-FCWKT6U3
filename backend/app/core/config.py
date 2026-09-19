@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     jwt_jwks_url: str | None = None
     access_token_ttl_minutes: int = 15
     refresh_token_ttl_hours: int = 24
+    # Local demo only: use the seeded dispatcher identity for every request.
+    # Keep this false outside a trusted local environment.
+    auth_disabled: bool = False
 
     # Seed administrator, created on first startup when the users table is empty.
     bootstrap_admin_email: str = "admin@roe.app"

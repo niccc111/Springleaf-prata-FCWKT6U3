@@ -10,10 +10,12 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Annotated, Any
 
 from fastapi import Depends, Request
+from sqlalchemy import select
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import Forbidden, Unauthenticated
+from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import get_session
 from app.models.entities import User
@@ -41,6 +43,18 @@ async def get_current_user(
     The role is read from the database rather than the token so a role change
     takes effect on the user's very next request (Requirement 17.6).
     """
+    if settings.auth_disabled:
+        email = (settings.bootstrap_dispatcher_email or settings.bootstrap_admin_email).lower()
+        user = await session.scalar(select(User).where(User.email == email, User.active.is_(True)))
+        if user is None:
+            user = await session.scalar(
+                select(User).where(User.active.is_(True)).order_by(User.email)
+            )
+        if user is None:
+            raise Unauthenticated("The local dispatcher account is unavailable")
+        request.state.user = user
+        return user
+
     if credentials is None or not credentials.credentials:
         raise Unauthenticated("Missing or invalid credentials")
 

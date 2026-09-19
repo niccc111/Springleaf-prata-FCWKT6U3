@@ -12,6 +12,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from app.core import events
 from app.core.errors import Unauthenticated
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import decode_token
 
@@ -23,11 +24,14 @@ router = APIRouter()
 async def dispatcher_socket(websocket: WebSocket, token: str = Query(default="")) -> None:
     """Authenticated event stream. The token is passed as a query parameter
     because browsers cannot set headers on a WebSocket handshake."""
-    try:
-        claims = decode_token(token, expected_type="access")
-    except Unauthenticated:
-        await websocket.close(code=4401, reason="Missing or invalid credentials")
-        return
+    if settings.auth_disabled:
+        claims = {"sub": "local-dispatcher", "role": "dispatcher"}
+    else:
+        try:
+            claims = decode_token(token, expected_type="access")
+        except Unauthenticated:
+            await websocket.close(code=4401, reason="Missing or invalid credentials")
+            return
 
     await websocket.accept()
     await websocket.send_json(

@@ -57,7 +57,8 @@ management, integration webhooks).
 ```bash
 # --- backend ---
 cd backend
-python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+python -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
 cp .env.example .env                      # adjust DATABASE_URL / REDIS_URL
 .venv/bin/alembic upgrade head
 .venv/bin/python scripts/seed_demo.py     # optional demo data
