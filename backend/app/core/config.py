@@ -14,6 +14,9 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 AdapterMode = Literal["mock", "http"]
+#: The mapping service additionally supports Google Maps (Geocoding + Routes),
+#: OSRM (free road-network routing, no API key), and Mapbox.
+MappingAdapterMode = Literal["mock", "http", "google", "osrm", "mapbox"]
 
 
 class Settings(BaseSettings):
@@ -87,12 +90,27 @@ class Settings(BaseSettings):
     fms_poll_interval_seconds: int = 15
     fms_unavailable_threshold_seconds: int = 30
 
-    mapping_adapter: AdapterMode = "mock"
+    mapping_adapter: MappingAdapterMode = "mock"
     mapping_base_url: str | None = None
     mapping_api_key: str | None = None
     mapping_timeout_seconds: float = 10.0
     mapping_unavailable_threshold_seconds: int = 30
     mapping_retry_interval_seconds: int = 60
+    #: Google Maps Platform API key (used when mapping_adapter == "google").
+    #: Needs the Geocoding API and Routes API enabled on the key.
+    google_maps_api_key: str | None = None
+    #: Region bias for Google geocoding (ccTLD), e.g. "sg" for Singapore.
+    google_maps_region: str = "sg"
+    #: OSRM routing server (used when mapping_adapter == "osrm"). Defaults to
+    #: the public demo server, which needs no key but is rate-limited and not
+    #: for production traffic. Point at your own OSRM host for real use.
+    osrm_base_url: str = "https://router.project-osrm.org"
+    #: Mapbox access token (used when mapping_adapter == "mapbox"). A secret
+    #: token (sk.) is recommended for server-side use. Powers geocoding,
+    #: the travel-time/distance matrix, and road-following route geometry.
+    mapbox_access_token: str | None = None
+    #: ISO 3166-1 country code to bias Mapbox geocoding, e.g. "sg".
+    mapbox_country: str = "sg"
 
     delivery_platform_adapter: AdapterMode = "mock"
     delivery_platform_base_url: str | None = None

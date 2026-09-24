@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.adapters.base import TravelMatrix
+from app.adapters.mapping import get_mapping_adapter
 from app.core import events
 from app.core.config import settings
 from app.core.errors import (
@@ -203,6 +204,7 @@ class RouteService:
             completed_at=route.completed_at,
             created_at=route.created_at,
             updated_at=route.updated_at,
+            geometry=route.geometry,
             stops=stops,
         )
 
@@ -275,6 +277,12 @@ class RouteService:
                 StopOrder(order_id=order_id) for order_id in scheduled.plan.order_ids
             ]
             route.stops.append(stop)
+
+        # Road-following geometry for the map: depot -> stops (in sequence) ->
+        # back to depot. Presentational only, so a failure leaves geometry null
+        # and the map falls back to straight segments.
+        route.geometry = await self._road_geometry(vehicle.depot_location, schedule)
+
         await session.flush()
 
         await audit_service.record_change(
@@ -287,6 +295,27 @@ class RouteService:
             new_state=route.to_dict(),
         )
         return route
+
+    async def _road_geometry(
+        self, depot: GeoPoint | None, schedule: RouteSchedule
+    ) -> dict | None:
+        """Fetch a road-following polyline for the map (depot -> stops -> depot).
+
+        Returns a GeoJSON LineString dict, or ``None`` if there are too few
+        points or the mapping adapter cannot produce road geometry.
+        """
+        if depot is None or not schedule.stops:
+            return None
+        ordered = sorted(schedule.stops, key=lambda s: s.sequence_number)
+        waypoints = [depot, *[s.plan.location for s in ordered], depot]
+        try:
+            coords = await get_mapping_adapter().route_geometry(waypoints)
+        except Exception as exc:  # presentational; never break route creation
+            logger.warning("route_geometry_unavailable", error=str(exc))
+            return None
+        if not coords:
+            return None
+        return {"type": "LineString", "coordinates": coords}
 
     # ------------------------------------------------------------------ #
     # Status machine (Requirements 11.6, 13.2; Property 26)
@@ -642,6 +671,10 @@ class RouteService:
             if degraded
             else None
         )
+        # Refresh the road-following map geometry to match the new stop order.
+        vehicle = route.vehicle or await session.get(Vehicle, route.vehicle_id)
+        depot = vehicle.depot_location if vehicle else None
+        route.geometry = await self._road_geometry(depot, schedule)
         await session.flush()
         await session.refresh(route, ["stops"])
 

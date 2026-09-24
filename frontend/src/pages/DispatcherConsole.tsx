@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertPanel } from '@/components/panels/AlertPanel';
 import { AuditLogModal } from '@/components/panels/AuditLogModal';
+import { OrdersPanel } from '@/components/panels/OrdersPanel';
 import { OptimiseControls } from '@/components/panels/OptimiseControls';
 import {
   RouteDetailPanel,
@@ -54,7 +55,7 @@ import {
 } from '@/hooks/useRoeData';
 import { selectAlerts, unacknowledgedAlerts, useAppStore } from '@/store';
 
-type SidePanel = 'routes' | 'alerts';
+type SidePanel = 'routes' | 'alerts' | 'orders';
 
 const SIDE_PANEL_ID = 'side-panel';
 
@@ -77,6 +78,7 @@ export function DispatcherConsole() {
   const alerts = useAppStore(selectAlerts);
 
   const [panel, setPanel] = useState<SidePanel>('routes');
+  const [ordersRefreshKey, setOrdersRefreshKey] = useState(0);
   const [entryOpen, setEntryOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [pendingReassign, setPendingReassign] = useState<PendingReassign | null>(null);
@@ -295,6 +297,13 @@ export function DispatcherConsole() {
               count={routes.length}
             />
             <PanelTab
+              id="orders"
+              active={panel === 'orders'}
+              onClick={() => setPanel('orders')}
+              icon={<Package className="h-3.5 w-3.5" />}
+              label="Orders"
+            />
+            <PanelTab
               id="alerts"
               active={panel === 'alerts'}
               onClick={() => setPanel('alerts')}
@@ -314,7 +323,15 @@ export function DispatcherConsole() {
             aria-labelledby={`tab-${panel}`}
             tabIndex={-1}
           >
-            {panel === 'alerts' ? (
+            {panel === 'orders' ? (
+              <OrdersPanel
+                refreshKey={ordersRefreshKey}
+                onChanged={() => {
+                  void routesQuery.refetch();
+                  void alertsQuery.refetch();
+                }}
+              />
+            ) : panel === 'alerts' ? (
               <div className="h-full overflow-y-auto">
                 <AlertPanel
                   alerts={unacknowledged}
@@ -408,6 +425,7 @@ export function DispatcherConsole() {
         onChanged={() => {
           void routesQuery.refetch();
           void alertsQuery.refetch();
+          setOrdersRefreshKey((k) => k + 1);
         }}
       />
 
@@ -461,7 +479,7 @@ function PanelTab({
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
-  count: number;
+  count?: number;
   emphasise?: boolean;
 }) {
   return (
@@ -498,7 +516,7 @@ function PanelTab({
     >
       {icon}
       {label}
-      {count > 0 && (
+      {count !== undefined && count > 0 && (
         <Badge
           variant={emphasise ? 'destructive' : 'secondary'}
           className="px-1.5 py-0 text-[10px] tabular-nums"

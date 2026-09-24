@@ -292,6 +292,8 @@ class RouteRead(BaseModel):
     completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+    #: Road-following polyline (GeoJSON LineString) for the map, when available.
+    geometry: dict | None = None
     stops: list[StopRead] = Field(default_factory=list)
 
 

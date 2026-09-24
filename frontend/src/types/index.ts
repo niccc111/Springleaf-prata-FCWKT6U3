@@ -114,6 +114,8 @@ export interface Route {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Road-following polyline (GeoJSON LineString) for the map, when available. */
+  geometry: { type: 'LineString'; coordinates: [number, number][] } | null;
   stops: Stop[];
 }
 

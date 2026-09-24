@@ -54,15 +54,24 @@ export function routeLines(routes: Route[]): FeatureCollection<LineString, Route
     if (route.stops.length === 0) continue;
     const colour = vehicleColour(route.vehicle_id);
     const ordered = [...route.stops].sort((a, b) => a.sequence_number - b.sequence_number);
-    const coordinates: [number, number][] = [];
-    if (route.depot_location) {
-      coordinates.push([route.depot_location.longitude, route.depot_location.latitude]);
-    }
-    for (const stop of ordered) {
-      coordinates.push([stop.location.longitude, stop.location.latitude]);
-    }
-    if (route.depot_location) {
-      coordinates.push([route.depot_location.longitude, route.depot_location.latitude]);
+
+    // Prefer the road-following geometry from the routing engine (a dense list
+    // of [lon, lat] points along the streets). Fall back to straight segments
+    // between depot and stops when no road geometry is available.
+    let coordinates: [number, number][] = [];
+    const roadCoords = route.geometry?.coordinates;
+    if (Array.isArray(roadCoords) && roadCoords.length >= 2) {
+      coordinates = roadCoords as [number, number][];
+    } else {
+      if (route.depot_location) {
+        coordinates.push([route.depot_location.longitude, route.depot_location.latitude]);
+      }
+      for (const stop of ordered) {
+        coordinates.push([stop.location.longitude, stop.location.latitude]);
+      }
+      if (route.depot_location) {
+        coordinates.push([route.depot_location.longitude, route.depot_location.latitude]);
+      }
     }
     if (coordinates.length < 2) continue;
     features.push({
